@@ -79,7 +79,7 @@ sessionStore.on('error', (err: Error) => {
 
 console.log("✅ Database initialization complete");
 
-// Middleware
+// CORS middleware (needed for all requests)
 app.use(
   cors({
     origin: process.env.NODE_ENV === "production"
@@ -88,10 +88,24 @@ app.use(
     credentials: true,
   })
 );
+
+// Serve static files FIRST (before session middleware) in production
+if (process.env.NODE_ENV === "production") {
+  const clientDistPath = path.join(__dirname, "../dist/client");
+  console.log("📁 Serving static files from:", clientDistPath);
+
+  // Serve static assets
+  app.use(express.static(clientDistPath, {
+    fallthrough: true,
+    redirect: false
+  }));
+}
+
+// Body parsers (for API routes)
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// Session configuration
+// Session configuration (only needed for API routes)
 app.use(
   session({
     store: sessionStore,
@@ -177,20 +191,10 @@ app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Server is running" });
 });
 
-// Serve static files in production
+// Handle React Router - serve index.html for all non-API routes (production only)
 if (process.env.NODE_ENV === "production") {
-  const clientDistPath = path.join(__dirname, "../dist/client");
-
-  console.log("📁 Serving static files from:", clientDistPath);
-
-  // Serve static assets with error handling
-  app.use(express.static(clientDistPath, {
-    fallthrough: true,
-    redirect: false
-  }));
-
-  // Handle React Router - serve index.html for all non-API routes
   app.get("*", (req, res, next) => {
+    const clientDistPath = path.join(__dirname, "../dist/client");
     const indexPath = path.join(clientDistPath, "index.html");
     console.log("📄 Serving index.html for:", req.path);
     res.sendFile(indexPath, (err) => {
