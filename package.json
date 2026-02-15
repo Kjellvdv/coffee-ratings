@@ -1,6 +1,9 @@
 {
   "name": "coffee-rater",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "description": "Multi-user coffee rating app with guided flavor profiling and social feed",
   "private": true,
   "type": "module",
