@@ -50,6 +50,17 @@ if (!DATABASE_URL) {
 
 console.log("🔌 Initializing database connection...");
 
+// Test database connection before starting
+const testPool = new Pool({ connectionString: DATABASE_URL });
+try {
+  const client = await testPool.connect();
+  console.log("✅ Database connection successful");
+  client.release();
+} catch (err) {
+  console.error("❌ Database connection failed:", err);
+  process.exit(1);
+}
+
 // Initialize storage
 const storage = initStorage(DATABASE_URL);
 
