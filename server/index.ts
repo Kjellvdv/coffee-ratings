@@ -89,7 +89,11 @@ app.use(
   })
 );
 
-// Serve static files FIRST (before session middleware) in production
+// Body parsers MUST come before static files to parse API request bodies
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Serve static files (before session middleware) in production
 if (process.env.NODE_ENV === "production") {
   const clientDistPath = path.join(__dirname, "../dist/client");
   console.log("📁 __dirname is:", __dirname);
@@ -110,10 +114,6 @@ if (process.env.NODE_ENV === "production") {
     redirect: false
   }));
 }
-
-// Body parsers (for API routes)
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Session configuration (only needed for API routes)
 app.use(

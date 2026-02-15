@@ -13,6 +13,9 @@ export function createAuthRouter(storage: IStorage) {
    */
   router.post("/register", async (req: Request, res: Response) => {
     try {
+      console.log("📝 Register request body:", req.body);
+      console.log("📝 Content-Type:", req.headers['content-type']);
+
       // Validate request body (includes password validation)
       const validatedData = registerUserSchema.parse(req.body);
       const { username, email, displayName, password } = validatedData;
