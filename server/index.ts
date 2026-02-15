@@ -15,6 +15,7 @@ import { createFlavorProfilesRouter } from "./routes/flavor-profiles";
 import { createFeedRouter } from "./routes/feed";
 import { createStatsRouter } from "./routes/stats";
 import type { User } from "@shared/schema";
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -149,7 +150,15 @@ if (process.env.NODE_ENV === "production") {
   console.log("📁 Looking for client files at:", clientDistPath);                                        
   console.log("📁 __dirname is:", __dirname);                                                            
   console.log("📁 NODE_ENV is:", process.env.NODE_ENV);                                                  
-  console.log("📁 process.cwd() is:", process.cwd());                                                    
+  console.log("📁 process.cwd() is:", process.cwd());
+
+  const fs = require('fs');
+    try {
+      const files = fs.readdirSync(clientDistPath);
+      console.log("📁 Files in dist/client:", files);
+    } catch (err: any) {
+      console.error("❌ Error reading dist/client:", err.message);
+    }                                                    
                                                          
   // Serve static assets
   app.use(express.static(clientDistPath));
