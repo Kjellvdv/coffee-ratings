@@ -15,7 +15,6 @@ import { createFlavorProfilesRouter } from "./routes/flavor-profiles";
 import { createFeedRouter } from "./routes/feed";
 import { createStatsRouter } from "./routes/stats";
 import type { User } from "@shared/schema";
-import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +25,22 @@ const { Pool } = pg;
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+// Basic health check BEFORE any middleware
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
+
+// Request logging middleware (BEFORE other middleware)
+app.use((req, res, next) => {
+  console.log(`📨 ${req.method} ${req.path}`);
+
+  // Set a timeout for all requests
+  req.setTimeout(30000); // 30 seconds
+  res.setTimeout(30000);
+
+  next();
+});
+
 // Database connection
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -33,16 +48,25 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
+console.log("🔌 Initializing database connection...");
+
 // Initialize storage
 const storage = initStorage(DATABASE_URL);
 
-// Session store
+// Session store with error handling
 const PgSession = connectPgSimple(session);
 const sessionStore = new PgSession({
   pool: new Pool({ connectionString: DATABASE_URL }),
   tableName: "session",
   createTableIfMissing: true,
 });
+
+// Listen for session store errors
+sessionStore.on('error', (err: Error) => {
+  console.error('❌ Session store error:', err);
+});
+
+console.log("✅ Database initialization complete");
 
 // Middleware
 app.use(
@@ -175,7 +199,13 @@ app.use(
     res: express.Response,
     next: express.NextFunction
   ) => {
-    console.error("Error:", err);
+    console.error("❌ Error handler caught:", err);
+
+    // Ensure we haven't already sent a response
+    if (res.headersSent) {
+      console.log("⚠️ Headers already sent, passing to next error handler");
+      return next(err);
+    }
 
     const message =
       process.env.NODE_ENV === "production"
