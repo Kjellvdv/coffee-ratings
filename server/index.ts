@@ -92,7 +92,17 @@ app.use(
 // Serve static files FIRST (before session middleware) in production
 if (process.env.NODE_ENV === "production") {
   const clientDistPath = path.join(__dirname, "../dist/client");
-  console.log("📁 Serving static files from:", clientDistPath);
+  console.log("📁 __dirname is:", __dirname);
+  console.log("📁 Static files path:", clientDistPath);
+
+  // Check if the directory exists
+  try {
+    const fs = await import('fs');
+    const files = fs.readdirSync(clientDistPath);
+    console.log("📁 Files in dist/client:", files.slice(0, 5)); // Show first 5 files
+  } catch (err: any) {
+    console.error("❌ Cannot read static files directory:", err.message);
+  }
 
   // Serve static assets
   app.use(express.static(clientDistPath, {
