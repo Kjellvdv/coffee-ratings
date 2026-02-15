@@ -23,7 +23,7 @@ const { Pool } = pg;
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 // Database connection
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -142,18 +142,15 @@ app.get("/api/health", (req, res) => {
 });
 
 // Serve static files in production
-if (process.env.NODE_ENV === "production") {
-  const clientDistPath = path.join(__dirname, "../dist/client");
 
-  if (process.env.NODE_ENV === "production") {                                                             
-    const clientDistPath = path.join(__dirname, "../dist/client");                                         
+if (process.env.NODE_ENV === "production") {                                                             
+  const clientDistPath = path.join(__dirname, "../dist/client");                                         
                                                                                                            
-    console.log("📁 Looking for client files at:", clientDistPath);                                        
-    console.log("📁 __dirname is:", __dirname);                                                            
-    console.log("📁 NODE_ENV is:", process.env.NODE_ENV);                                                  
-    console.log("📁 process.cwd() is:", process.cwd());                                                    
+  console.log("📁 Looking for client files at:", clientDistPath);                                        
+  console.log("📁 __dirname is:", __dirname);                                                            
+  console.log("📁 NODE_ENV is:", process.env.NODE_ENV);                                                  
+  console.log("📁 process.cwd() is:", process.cwd());                                                    
                                                          
-
   // Serve static assets
   app.use(express.static(clientDistPath));
 
@@ -188,4 +185,3 @@ app.use(
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);                               
 }); 
 
-export default app;
