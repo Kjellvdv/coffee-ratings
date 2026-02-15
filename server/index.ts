@@ -173,10 +173,10 @@ app.use(
   }
 );
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
-});
+ // Start server                                                                                          
+ app.listen(PORT, '0.0.0.0', () => {                                                                      
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);                               
+}); 
 
 export default app;
