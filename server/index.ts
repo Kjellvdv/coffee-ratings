@@ -143,7 +143,7 @@ app.get("/api/health", (req, res) => {
 
 // Serve static files in production
 if (process.env.NODE_ENV === "production") {
-  const clientDistPath = path.join(__dirname, "../client");
+  const clientDistPath = path.join(__dirname, "../dist/client");
 
   // Serve static assets
   app.use(express.static(clientDistPath));
