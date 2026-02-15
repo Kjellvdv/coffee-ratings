@@ -143,29 +143,27 @@ app.get("/api/health", (req, res) => {
 });
 
 // Serve static files in production
+if (process.env.NODE_ENV === "production") {
+  const clientDistPath = path.join(__dirname, "../dist/client");
 
-if (process.env.NODE_ENV === "production") {                                                             
-  const clientDistPath = path.join(__dirname, "../dist/client");                                         
-                                                                                                           
-  console.log("📁 Looking for client files at:", clientDistPath);                                        
-  console.log("📁 __dirname is:", __dirname);                                                            
-  console.log("📁 NODE_ENV is:", process.env.NODE_ENV);                                                  
-  console.log("📁 process.cwd() is:", process.cwd());
+  console.log("📁 Serving static files from:", clientDistPath);
 
-  const fs = require('fs');
-    try {
-      const files = fs.readdirSync(clientDistPath);
-      console.log("📁 Files in dist/client:", files);
-    } catch (err: any) {
-      console.error("❌ Error reading dist/client:", err.message);
-    }                                                    
-                                                         
-  // Serve static assets
-  app.use(express.static(clientDistPath));
+  // Serve static assets with error handling
+  app.use(express.static(clientDistPath, {
+    fallthrough: true,
+    redirect: false
+  }));
 
   // Handle React Router - serve index.html for all non-API routes
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(clientDistPath, "index.html"));
+  app.get("*", (req, res, next) => {
+    const indexPath = path.join(clientDistPath, "index.html");
+    console.log("📄 Serving index.html for:", req.path);
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error("❌ Error serving index.html:", err);
+        next(err);
+      }
+    });
   });
 }
 
