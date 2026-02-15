@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcrypt";
-import { insertUserSchema, type SafeUser } from "@shared/schema";
+import { registerUserSchema, type SafeUser } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
 
@@ -13,17 +13,9 @@ export function createAuthRouter(storage: IStorage) {
    */
   router.post("/register", async (req: Request, res: Response) => {
     try {
-      // Validate request body
-      const validatedData = insertUserSchema.parse(req.body);
-      const { username, email, displayName } = validatedData;
-      const password = req.body.password;
-
-      if (!password || password.length < 6) {
-        return res.status(400).json({
-          success: false,
-          error: "La contraseña debe tener al menos 6 caracteres",
-        });
-      }
+      // Validate request body (includes password validation)
+      const validatedData = registerUserSchema.parse(req.body);
+      const { username, email, displayName, password } = validatedData;
 
       // Check if username already exists
       const existingUsername = await storage.getUserByUsername(username);

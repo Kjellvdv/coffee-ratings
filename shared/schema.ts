@@ -140,6 +140,11 @@ export const insertUserSchema = createInsertSchema(users, {
   deletedAt: true,
 });
 
+// Registration schema (accepts password instead of passwordHash)
+export const registerUserSchema = insertUserSchema.omit({ passwordHash: true }).extend({
+  password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
+});
+
 export const selectUserSchema = createSelectSchema(users);
 
 // Coffee schemas
