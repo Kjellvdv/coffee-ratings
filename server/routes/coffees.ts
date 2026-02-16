@@ -88,6 +88,7 @@ export function createCoffeesRouter(storage: IStorage) {
   router.post("/", async (req: Request, res: Response) => {
     try {
       const userId = req.user!.id;
+      console.log("📝 Creating coffee with data:", req.body);
 
       // Validate request body
       const validatedData = insertCoffeeSchema.parse(req.body);
@@ -101,6 +102,7 @@ export function createCoffeesRouter(storage: IStorage) {
       res.status(201).json({ success: true, data: coffee });
     } catch (error: any) {
       if (error.name === "ZodError") {
+        console.error("❌ Validation error:", error.errors);
         return res.status(400).json({
           success: false,
           error: "Datos de validación inválidos",
