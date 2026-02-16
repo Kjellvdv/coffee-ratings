@@ -146,22 +146,10 @@ app.use((req, res, next) => {
       sessionID: req.sessionID,
       isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
       user: req.user ? `User ${req.user.id}` : 'No user',
-      hasCookieHeader: !!req.headers.cookie
+      hasCookieHeader: !!req.headers.cookie,
+      cookieValue: req.headers.cookie ? req.headers.cookie.substring(0, 50) + '...' : 'none'
     });
   }
-
-  // Log response headers for auth endpoints
-  const originalSend = res.send;
-  res.send = function(data) {
-    if (req.path.includes('/api/auth/')) {
-      console.log(`📤 Response headers for ${req.path}:`, {
-        'set-cookie': res.getHeader('set-cookie'),
-        'access-control-allow-credentials': res.getHeader('access-control-allow-credentials')
-      });
-    }
-    return originalSend.call(this, data);
-  };
-
   next();
 });
 

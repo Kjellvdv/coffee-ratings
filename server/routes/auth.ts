@@ -71,6 +71,7 @@ export function createAuthRouter(storage: IStorage) {
 
           console.log("✅ User logged in successfully, session ID:", req.sessionID);
           console.log("🍪 Session saved:", req.session);
+          console.log("📤 Headers will include Set-Cookie for session:", req.sessionID);
 
           // Return user without password hash
           const safeUser: SafeUser = {
@@ -165,6 +166,7 @@ export function createAuthRouter(storage: IStorage) {
 
           console.log("✅ User logged in successfully, session ID:", req.sessionID);
           console.log("🍪 Session saved:", req.session);
+          console.log("📤 Headers will include Set-Cookie for session:", req.sessionID);
 
           // Return user without password hash
           const safeUser: SafeUser = {
