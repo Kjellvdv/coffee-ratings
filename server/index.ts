@@ -126,7 +126,7 @@ app.use(
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+      sameSite: "lax", // Changed from "strict" to "lax" for production compatibility
     },
   })
 );
@@ -134,6 +134,19 @@ app.use(
 // Passport configuration
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Session debugging middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    console.log(`🔑 Session check for ${req.method} ${req.path}:`, {
+      hasSession: !!req.session,
+      sessionID: req.sessionID,
+      isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
+      user: req.user ? `User ${req.user.id}` : 'No user'
+    });
+  }
+  next();
+});
 
 // Passport LocalStrategy
 passport.use(

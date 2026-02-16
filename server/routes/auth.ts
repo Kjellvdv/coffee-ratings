@@ -52,12 +52,15 @@ export function createAuthRouter(storage: IStorage) {
       // Auto-login after registration
       req.login(user, (err) => {
         if (err) {
-          console.error("Error logging in after registration:", err);
+          console.error("❌ Error logging in after registration:", err);
           return res.status(500).json({
             success: false,
             error: "Error al iniciar sesión",
           });
         }
+
+        console.log("✅ User logged in successfully, session ID:", req.sessionID);
+        console.log("🍪 Session:", req.session);
 
         // Return user without password hash
         const safeUser: SafeUser = {
@@ -132,12 +135,16 @@ export function createAuthRouter(storage: IStorage) {
       // Login user
       req.login(user, (err) => {
         if (err) {
-          console.error("Error logging in:", err);
+          console.error("❌ Error logging in:", err);
           return res.status(500).json({
             success: false,
             error: "Error al iniciar sesión",
           });
         }
+
+        console.log("✅ User logged in successfully, session ID:", req.sessionID);
+        console.log("🍪 Session:", req.session);
+        console.log("🍪 Cookies being sent:", res.getHeaders()['set-cookie']);
 
         // Return user without password hash
         const safeUser: SafeUser = {
