@@ -80,11 +80,14 @@ sessionStore.on('error', (err: Error) => {
 console.log("✅ Database initialization complete");
 
 // CORS middleware (needed for all requests)
+const corsOrigin = process.env.NODE_ENV === "production"
+  ? process.env.CLIENT_URL
+  : "http://localhost:5173";
+console.log("🌐 CORS origin:", corsOrigin);
+
 app.use(
   cors({
-    origin: process.env.NODE_ENV === "production"
-      ? process.env.CLIENT_URL
-      : "http://localhost:5173",
+    origin: corsOrigin,
     credentials: true,
   })
 );
@@ -142,9 +145,23 @@ app.use((req, res, next) => {
       hasSession: !!req.session,
       sessionID: req.sessionID,
       isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
-      user: req.user ? `User ${req.user.id}` : 'No user'
+      user: req.user ? `User ${req.user.id}` : 'No user',
+      hasCookieHeader: !!req.headers.cookie
     });
   }
+
+  // Log response headers for auth endpoints
+  const originalSend = res.send;
+  res.send = function(data) {
+    if (req.path.includes('/api/auth/')) {
+      console.log(`📤 Response headers for ${req.path}:`, {
+        'set-cookie': res.getHeader('set-cookie'),
+        'access-control-allow-credentials': res.getHeader('access-control-allow-credentials')
+      });
+    }
+    return originalSend.call(this, data);
+  };
+
   next();
 });
 
