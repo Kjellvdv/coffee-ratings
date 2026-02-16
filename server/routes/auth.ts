@@ -59,23 +59,34 @@ export function createAuthRouter(storage: IStorage) {
           });
         }
 
-        console.log("✅ User logged in successfully, session ID:", req.sessionID);
-        console.log("🍪 Session:", req.session);
+        // Explicitly save session before sending response
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("❌ Error saving session:", saveErr);
+            return res.status(500).json({
+              success: false,
+              error: "Error al guardar sesión",
+            });
+          }
 
-        // Return user without password hash
-        const safeUser: SafeUser = {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          displayName: user.displayName,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          deletedAt: user.deletedAt,
-        };
+          console.log("✅ User logged in successfully, session ID:", req.sessionID);
+          console.log("🍪 Session saved:", req.session);
 
-        res.status(201).json({
-          success: true,
-          data: safeUser,
+          // Return user without password hash
+          const safeUser: SafeUser = {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            displayName: user.displayName,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt,
+            deletedAt: user.deletedAt,
+          };
+
+          res.status(201).json({
+            success: true,
+            data: safeUser,
+          });
         });
       });
     } catch (error: any) {
@@ -142,24 +153,34 @@ export function createAuthRouter(storage: IStorage) {
           });
         }
 
-        console.log("✅ User logged in successfully, session ID:", req.sessionID);
-        console.log("🍪 Session:", req.session);
-        console.log("🍪 Cookies being sent:", res.getHeaders()['set-cookie']);
+        // Explicitly save session before sending response
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("❌ Error saving session:", saveErr);
+            return res.status(500).json({
+              success: false,
+              error: "Error al guardar sesión",
+            });
+          }
 
-        // Return user without password hash
-        const safeUser: SafeUser = {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          displayName: user.displayName,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          deletedAt: user.deletedAt,
-        };
+          console.log("✅ User logged in successfully, session ID:", req.sessionID);
+          console.log("🍪 Session saved:", req.session);
 
-        res.json({
-          success: true,
-          data: safeUser,
+          // Return user without password hash
+          const safeUser: SafeUser = {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            displayName: user.displayName,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt,
+            deletedAt: user.deletedAt,
+          };
+
+          res.json({
+            success: true,
+            data: safeUser,
+          });
         });
       });
     } catch (error) {
