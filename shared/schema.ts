@@ -37,6 +37,7 @@ export const coffees = pgTable("coffees", {
   origin: text("origin"),
   roastLevel: text("roast_level"), // Claro, Medio, Oscuro
   processingMethod: text("processing_method"), // Lavado, Natural, Honey
+  beansMix: text("beans_mix"), // 100% Arabica, 100% Robusta, etc.
   price: real("price"),
 
   // Visual
@@ -165,6 +166,7 @@ export const insertCoffeeSchema = createInsertSchema(coffees, {
   price: z.number().positive("El precio debe ser positivo").optional(),
   roastLevel: z.enum(["Claro", "Medio", "Oscuro"]).optional(),
   processingMethod: z.enum(["Lavado", "Natural", "Honey"]).optional(),
+  beansMix: z.enum(["100% Arabica", "100% Robusta", "Arabica/Robusta Blend", "Liberica/Excelsa"]).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Color hex inválido").optional(),
 }).omit({
   id: true,
