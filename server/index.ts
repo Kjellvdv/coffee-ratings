@@ -119,17 +119,22 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // Session configuration (only needed for API routes)
+console.log("🔐 Configuring session middleware...");
+console.log("🔐 SESSION_SECRET set:", !!process.env.SESSION_SECRET);
+console.log("🔐 NODE_ENV:", process.env.NODE_ENV);
+
 app.use(
   session({
     store: sessionStore,
     secret: process.env.SESSION_SECRET || "your-secret-key-change-in-production",
-    resave: false,
+    resave: true, // Changed to true to force session save
     saveUninitialized: false,
+    proxy: true, // Trust Railway's proxy
     cookie: {
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax", // Changed from "strict" to "lax" for production compatibility
+      sameSite: "lax",
     },
   })
 );

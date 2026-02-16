@@ -59,6 +59,9 @@ export function createAuthRouter(storage: IStorage) {
           });
         }
 
+        // Force session to be recognized as modified
+        req.session.touch();
+
         console.log("✅ User logged in successfully, session ID:", req.sessionID);
         console.log("🍪 Session:", req.session);
 
@@ -73,7 +76,6 @@ export function createAuthRouter(storage: IStorage) {
           deletedAt: user.deletedAt,
         };
 
-        // Don't manually save - let express-session handle it automatically
         res.status(201).json({
           success: true,
           data: safeUser,
@@ -143,6 +145,9 @@ export function createAuthRouter(storage: IStorage) {
           });
         }
 
+        // Force session to be recognized as modified
+        req.session.touch();
+
         console.log("✅ User logged in successfully, session ID:", req.sessionID);
         console.log("🍪 Session:", req.session);
 
@@ -157,7 +162,6 @@ export function createAuthRouter(storage: IStorage) {
           deletedAt: user.deletedAt,
         };
 
-        // Don't manually save - let express-session handle it automatically
         res.json({
           success: true,
           data: safeUser,
