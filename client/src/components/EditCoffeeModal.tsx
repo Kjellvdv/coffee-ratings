@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RatingStars } from './RatingStars';
+import { ImageUpload } from './ImageUpload';
+import { ColorPicker } from './ColorPicker';
 import type { CoffeeWithDetails, UpdateCoffee } from '@shared/schema';
 
 interface EditCoffeeModalProps {
@@ -18,6 +20,8 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
   const [beansMix, setBeansMix] = useState<string>(coffee.beansMix || '');
   const [website, setWebsite] = useState(coffee.website || '');
   const [price, setPrice] = useState(coffee.price?.toString() || '');
+  const [image, setImage] = useState<string | null>(coffee.image || null);
+  const [color, setColor] = useState(coffee.color || '#8B4513');
   const [rating, setRating] = useState(coffee.rating);
   const [description, setDescription] = useState(coffee.description || '');
   const [isPrivate, setIsPrivate] = useState(coffee.isPrivate);
@@ -34,6 +38,8 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
     setBeansMix(coffee.beansMix || '');
     setWebsite(coffee.website || '');
     setPrice(coffee.price?.toString() || '');
+    setImage(coffee.image || null);
+    setColor(coffee.color || '#8B4513');
     setRating(coffee.rating);
     setDescription(coffee.description || '');
     setIsPrivate(coffee.isPrivate);
@@ -61,6 +67,8 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
         beansMix: beansMix || undefined,
         website: website || undefined,
         price: price ? parseFloat(price) : undefined,
+        image: image || undefined,
+        color: color || undefined,
         rating,
         description: description || undefined,
         isPrivate,
@@ -217,6 +225,21 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
               />
             </div>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Imagen del Café
+            </label>
+            <ImageUpload
+              image={image}
+              onImageChange={setImage}
+              onColorPick={setColor}
+            />
+          </div>
+
+          {image && (
+            <ColorPicker color={color} onColorChange={setColor} />
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
