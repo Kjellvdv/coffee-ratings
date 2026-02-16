@@ -168,6 +168,7 @@ export const insertCoffeeSchema = createInsertSchema(coffees, {
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Color hex inválido").optional(),
 }).omit({
   id: true,
+  userId: true, // userId comes from authenticated user, not request body
   createdAt: true,
   updatedAt: true,
   deletedAt: true,
