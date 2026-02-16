@@ -59,35 +59,24 @@ export function createAuthRouter(storage: IStorage) {
           });
         }
 
-        // Explicitly save session before sending response
-        req.session.save((saveErr) => {
-          if (saveErr) {
-            console.error("❌ Error saving session:", saveErr);
-            return res.status(500).json({
-              success: false,
-              error: "Error al guardar sesión",
-            });
-          }
+        console.log("✅ User logged in successfully, session ID:", req.sessionID);
+        console.log("🍪 Session:", req.session);
 
-          console.log("✅ User logged in successfully, session ID:", req.sessionID);
-          console.log("🍪 Session saved:", req.session);
-          console.log("📤 Headers will include Set-Cookie for session:", req.sessionID);
+        // Return user without password hash
+        const safeUser: SafeUser = {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          deletedAt: user.deletedAt,
+        };
 
-          // Return user without password hash
-          const safeUser: SafeUser = {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            displayName: user.displayName,
-            createdAt: user.createdAt,
-            updatedAt: user.updatedAt,
-            deletedAt: user.deletedAt,
-          };
-
-          res.status(201).json({
-            success: true,
-            data: safeUser,
-          });
+        // Don't manually save - let express-session handle it automatically
+        res.status(201).json({
+          success: true,
+          data: safeUser,
         });
       });
     } catch (error: any) {
@@ -154,35 +143,24 @@ export function createAuthRouter(storage: IStorage) {
           });
         }
 
-        // Explicitly save session before sending response
-        req.session.save((saveErr) => {
-          if (saveErr) {
-            console.error("❌ Error saving session:", saveErr);
-            return res.status(500).json({
-              success: false,
-              error: "Error al guardar sesión",
-            });
-          }
+        console.log("✅ User logged in successfully, session ID:", req.sessionID);
+        console.log("🍪 Session:", req.session);
 
-          console.log("✅ User logged in successfully, session ID:", req.sessionID);
-          console.log("🍪 Session saved:", req.session);
-          console.log("📤 Headers will include Set-Cookie for session:", req.sessionID);
+        // Return user without password hash
+        const safeUser: SafeUser = {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          deletedAt: user.deletedAt,
+        };
 
-          // Return user without password hash
-          const safeUser: SafeUser = {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            displayName: user.displayName,
-            createdAt: user.createdAt,
-            updatedAt: user.updatedAt,
-            deletedAt: user.deletedAt,
-          };
-
-          res.json({
-            success: true,
-            data: safeUser,
-          });
+        // Don't manually save - let express-session handle it automatically
+        res.json({
+          success: true,
+          data: safeUser,
         });
       });
     } catch (error) {
