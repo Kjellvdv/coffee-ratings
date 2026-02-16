@@ -30,6 +30,7 @@ export function FlavorProfileWizard() {
   const [roastLevel, setRoastLevel] = useState<string>('');
   const [processingMethod, setProcessingMethod] = useState<string>('');
   const [beansMix, setBeansMix] = useState<string>('');
+  const [website, setWebsite] = useState('');
   const [price, setPrice] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [color, setColor] = useState('#8B4513');
@@ -100,6 +101,7 @@ export function FlavorProfileWizard() {
         roastLevel: roastLevel || undefined,
         processingMethod: processingMethod || undefined,
         beansMix: beansMix || undefined,
+        website: website || undefined,
         price: price ? parseFloat(price) : undefined,
         color: color || undefined,
         image: image || undefined,
@@ -287,18 +289,33 @@ export function FlavorProfileWizard() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Precio (opcional)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  placeholder="Ej: 15.99"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sitio Web
+                  </label>
+                  <input
+                    type="url"
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    placeholder="https://example.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Precio
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    placeholder="15.99"
+                  />
+                </div>
               </div>
 
               <div>

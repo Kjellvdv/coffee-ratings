@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useCoffees, useDeleteCoffee } from '../hooks/useCoffees';
+import { useCoffees, useDeleteCoffee, useUpdateCoffee } from '../hooks/useCoffees';
 import { CoffeeCard } from '../components/CoffeeCard';
 import { Stats } from '../components/Stats';
 import { SearchBar } from '../components/SearchBar';
 import { FilterControls } from '../components/FilterControls';
 import { ExportMenu } from '../components/ExportMenu';
-import type { CoffeeWithDetails } from '@shared/schema';
+import { EditCoffeeModal } from '../components/EditCoffeeModal';
+import type { CoffeeWithDetails, UpdateCoffee } from '@shared/schema';
 
 export function MyCollection() {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export function MyCollection() {
   const [roastLevel, setRoastLevel] = useState('');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [editingCoffee, setEditingCoffee] = useState<CoffeeWithDetails | null>(null);
 
   const { data: coffees, isLoading, error } = useCoffees({
     search,
@@ -25,6 +27,7 @@ export function MyCollection() {
   });
 
   const deleteMutation = useDeleteCoffee();
+  const updateMutation = useUpdateCoffee();
 
   const handleDelete = async (id: number) => {
     if (window.confirm('¿Estás seguro de que quieres eliminar este café?')) {
@@ -37,8 +40,11 @@ export function MyCollection() {
   };
 
   const handleEdit = (coffee: CoffeeWithDetails) => {
-    // TODO: Implement edit functionality later
-    alert('Funcionalidad de edición próximamente');
+    setEditingCoffee(coffee);
+  };
+
+  const handleSaveEdit = async (id: number, data: UpdateCoffee) => {
+    await updateMutation.mutateAsync({ id, coffee: data });
   };
 
   return (
@@ -155,6 +161,15 @@ export function MyCollection() {
           </div>
         )}
       </div>
+
+      {editingCoffee && (
+        <EditCoffeeModal
+          coffee={editingCoffee}
+          isOpen={!!editingCoffee}
+          onClose={() => setEditingCoffee(null)}
+          onSave={handleSaveEdit}
+        />
+      )}
     </div>
   );
 }
