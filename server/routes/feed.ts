@@ -97,6 +97,38 @@ export function createFeedRouter(storage: IStorage) {
   });
 
   /**
+   * GET /api/feed/:id/my-matches
+   * Find current user's coffees that match the given feed coffee (same name + roaster)
+   */
+  router.get("/:id/my-matches", async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const coffeeId = parseInt(req.params.id);
+
+      if (isNaN(coffeeId)) {
+        return res.status(400).json({ success: false, error: "ID de café inválido" });
+      }
+
+      const source = await storage.getCoffee(coffeeId, userId);
+      if (!source || (source.isPrivate && source.userId !== userId)) {
+        return res.status(404).json({ success: false, error: "Café no encontrado" });
+      }
+
+      const userCoffees = await storage.getCoffees(userId);
+      const matches = userCoffees.filter(
+        (c) =>
+          c.name.toLowerCase() === source.name.toLowerCase() &&
+          c.roaster.toLowerCase() === source.roaster.toLowerCase()
+      );
+
+      res.json({ success: true, data: matches });
+    } catch (error) {
+      console.error("Error finding matches:", error);
+      res.status(500).json({ success: false, error: "Error al buscar coincidencias" });
+    }
+  });
+
+  /**
    * GET /api/feed/users/:userId/coffees
    * Get public coffees from a specific user
    */

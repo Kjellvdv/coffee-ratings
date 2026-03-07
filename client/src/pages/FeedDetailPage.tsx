@@ -1,10 +1,36 @@
+import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useFeedCoffee } from '../hooks/useFeed';
+import { useAuth } from '../context/AuthContext';
+import { getMyMatches } from '../lib/api';
+import type { CoffeeWithDetails } from '@shared/schema';
 
 export function FeedDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: coffee, isLoading, error } = useFeedCoffee(parseInt(id || '0'));
+
+  const [compareState, setCompareState] = useState<'idle' | 'loading' | 'none' | 'choose'>('idle');
+  const [matches, setMatches] = useState<CoffeeWithDetails[]>([]);
+
+  async function handleCompare() {
+    if (!coffee) return;
+    setCompareState('loading');
+    try {
+      const found = await getMyMatches(coffee.id);
+      if (found.length === 0) {
+        setCompareState('none');
+      } else if (found.length === 1) {
+        navigate(`/compare/${coffee.id}/${found[0].id}`);
+      } else {
+        setMatches(found);
+        setCompareState('choose');
+      }
+    } catch {
+      setCompareState('idle');
+    }
+  }
 
   const renderStars = (rating: number) => {
     return (
@@ -151,6 +177,50 @@ export function FeedDetailPage() {
                 {coffee.rating} / 10
               </p>
             </div>
+
+            {/* Compare button (only for other people's coffees) */}
+            {coffee.userId !== user?.id && (
+              <div className="mb-6">
+                <button
+                  onClick={handleCompare}
+                  disabled={compareState === 'loading'}
+                  className="bg-amber-600 text-white px-5 py-2 rounded-md hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  {compareState === 'loading' ? 'Buscando...' : 'Comparar con el mío'}
+                </button>
+
+                {compareState === 'none' && (
+                  <p className="mt-2 text-sm text-gray-500">
+                    No tienes este café en tu colección.{' '}
+                    <Link to="/feed" className="text-amber-600 hover:underline">
+                      Cópialo desde el feed
+                    </Link>{' '}
+                    para poder comparar.
+                  </p>
+                )}
+
+                {compareState === 'choose' && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-sm text-gray-600">
+                      Tienes {matches.length} versiones de este café. ¿Con cuál comparar?
+                    </p>
+                    {matches.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => navigate(`/compare/${coffee.id}/${m.id}`)}
+                        className="block w-full text-left border border-amber-300 rounded-md px-4 py-2 text-sm hover:bg-amber-50"
+                      >
+                        <span className="font-medium">{m.name}</span>
+                        <span className="text-gray-500 ml-2">
+                          · Valoración: {m.rating}/10
+                          {m.flavorProfile ? ' · Con perfil de sabor' : ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Flavor Profile */}
             {coffee.flavorProfile && (

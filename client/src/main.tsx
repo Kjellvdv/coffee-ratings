@@ -11,6 +11,7 @@ import { MyCollection } from './pages/MyCollection';
 import { FlavorProfileWizard } from './components/FlavorProfileWizard';
 import { FeedPage } from './pages/FeedPage';
 import { FeedDetailPage } from './pages/FeedDetailPage';
+import { ComparePage } from './pages/ComparePage';
 import './index.css';
 
 // Create QueryClient instance
@@ -59,6 +60,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <FeedDetailPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/compare/:theirsId/:mineId"
+              element={
+                <ProtectedRoute>
+                  <ComparePage />
                 </ProtectedRoute>
               }
             />

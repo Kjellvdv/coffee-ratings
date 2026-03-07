@@ -175,6 +175,52 @@ export function createCoffeesRouter(storage: IStorage) {
   });
 
   /**
+   * POST /api/coffees/:id/duplicate
+   * Copy a public coffee's general info into the current user's collection
+   */
+  router.post("/:id/duplicate", async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const coffeeId = parseInt(req.params.id);
+
+      if (isNaN(coffeeId)) {
+        return res.status(400).json({ success: false, error: "ID de café inválido" });
+      }
+
+      const source = await storage.getCoffee(coffeeId, userId);
+
+      if (!source) {
+        return res.status(404).json({ success: false, error: "Café no encontrado" });
+      }
+
+      if (source.isPrivate && source.userId !== userId) {
+        return res.status(403).json({ success: false, error: "No autorizado" });
+      }
+
+      const coffee = await storage.createCoffee({
+        userId,
+        name: source.name,
+        roaster: source.roaster,
+        origin: source.origin ?? undefined,
+        roastLevel: source.roastLevel as any ?? undefined,
+        processingMethod: source.processingMethod as any ?? undefined,
+        beansMix: source.beansMix as any ?? undefined,
+        website: source.website ?? undefined,
+        color: source.color ?? undefined,
+        image: source.image ?? undefined,
+        rating: 0,
+        isPrivate: false,
+      });
+
+      console.log(`✅ Coffee ${coffeeId} duplicated as ${coffee.id} for user ${userId}`);
+      res.status(201).json({ success: true, data: coffee });
+    } catch (error) {
+      console.error("Error duplicating coffee:", error);
+      res.status(500).json({ success: false, error: "Error al duplicar café" });
+    }
+  });
+
+  /**
    * DELETE /api/coffees/:id
    * Soft delete coffee (owner only)
    */

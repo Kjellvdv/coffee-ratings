@@ -1,11 +1,29 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { CoffeeWithDetails } from '@shared/schema';
+import { duplicateCoffee } from '../lib/api';
 
 interface FeedCardProps {
   coffee: CoffeeWithDetails;
 }
 
 export function FeedCard({ coffee }: FeedCardProps) {
+  const [duplicating, setDuplicating] = useState(false);
+  const [duplicated, setDuplicated] = useState(false);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+
+  async function handleDuplicate() {
+    setDuplicating(true);
+    setDuplicateError(null);
+    try {
+      await duplicateCoffee(coffee.id);
+      setDuplicated(true);
+    } catch (err) {
+      setDuplicateError((err as Error).message);
+    } finally {
+      setDuplicating(false);
+    }
+  }
   const renderStars = (rating: number) => {
     return (
       <div className="flex gap-0.5">
@@ -138,13 +156,27 @@ export function FeedCard({ coffee }: FeedCardProps) {
           </p>
         )}
 
-        {/* View Details Link */}
-        <Link
-          to={`/feed/${coffee.id}`}
-          className="inline-block text-amber-600 hover:text-amber-700 text-sm font-medium"
-        >
-          Ver Detalles →
-        </Link>
+        {/* Actions */}
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <Link
+            to={`/feed/${coffee.id}`}
+            className="text-amber-600 hover:text-amber-700 text-sm font-medium"
+          >
+            Ver Detalles →
+          </Link>
+
+          <button
+            onClick={handleDuplicate}
+            disabled={duplicating || duplicated}
+            className="text-sm px-3 py-1 rounded-md border border-amber-600 text-amber-600 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {duplicated ? '✓ Copiado' : duplicating ? 'Copiando...' : 'Copiar a mi colección'}
+          </button>
+        </div>
+
+        {duplicateError && (
+          <p className="text-xs text-red-500 mt-1">{duplicateError}</p>
+        )}
       </div>
     </div>
   );

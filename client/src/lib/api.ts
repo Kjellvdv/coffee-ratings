@@ -77,6 +77,15 @@ export async function updateCoffee(id: number, coffee: UpdateCoffee): Promise<Co
   return handleResponse<Coffee>(response);
 }
 
+export async function duplicateCoffee(id: number): Promise<Coffee> {
+  const response = await fetch(`/api/coffees/${id}/duplicate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+
+  return handleResponse<Coffee>(response);
+}
+
 export async function deleteCoffee(id: number): Promise<void> {
   const response = await fetch(`/api/coffees/${id}`, {
     method: 'DELETE',
@@ -104,6 +113,14 @@ export async function getFeedCoffee(id: number): Promise<CoffeeWithDetails> {
   });
 
   return handleResponse<CoffeeWithDetails>(response);
+}
+
+export async function getMyMatches(feedCoffeeId: number): Promise<CoffeeWithDetails[]> {
+  const response = await fetch(`/api/feed/${feedCoffeeId}/my-matches`, {
+    credentials: 'include',
+  });
+
+  return handleResponse<CoffeeWithDetails[]>(response);
 }
 
 export async function getUserCoffees(userId: number): Promise<CoffeeWithDetails[]> {
