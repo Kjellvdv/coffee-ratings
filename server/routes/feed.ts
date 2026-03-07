@@ -2,6 +2,41 @@ import { Router, Request, Response } from "express";
 import type { IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
 
+function normalizeName(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[''`´]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function isFuzzyNameMatch(a: string, b: string): boolean {
+  const na = normalizeName(a);
+  const nb = normalizeName(b);
+  if (na === nb) return true;
+  // Allow up to 2 edits for short names, or 10% of the longer name's length
+  const threshold = Math.max(2, Math.floor(Math.max(na.length, nb.length) * 0.1));
+  return levenshtein(na, nb) <= threshold;
+}
+
 export function createFeedRouter(storage: IStorage) {
   const router = Router();
 
@@ -98,7 +133,7 @@ export function createFeedRouter(storage: IStorage) {
 
   /**
    * GET /api/feed/:id/my-matches
-   * Find current user's coffees that match the given feed coffee (same name + roaster)
+   * Find current user's coffees that fuzzy-match the given feed coffee by name
    */
   router.get("/:id/my-matches", async (req: Request, res: Response) => {
     try {
@@ -115,11 +150,7 @@ export function createFeedRouter(storage: IStorage) {
       }
 
       const userCoffees = await storage.getCoffees(userId);
-      const matches = userCoffees.filter(
-        (c) =>
-          c.name.toLowerCase() === source.name.toLowerCase() &&
-          c.roaster.toLowerCase() === source.roaster.toLowerCase()
-      );
+      const matches = userCoffees.filter((c) => isFuzzyNameMatch(c.name, source.name));
 
       res.json({ success: true, data: matches });
     } catch (error) {
