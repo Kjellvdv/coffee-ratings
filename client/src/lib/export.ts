@@ -1,105 +1,120 @@
 import type { CoffeeWithDetails } from '@shared/schema';
+import type { Lang, TranslationKey } from '../i18n';
 
-/**
- * Export user's coffee collection to JSON format
- */
-export function exportToJSON(coffees: CoffeeWithDetails[]): void {
-  const exportData = coffees.map((coffee) => ({
-    nombre: coffee.name,
-    tostador: coffee.roaster,
-    origen: coffee.origin || 'N/A',
-    nivelTueste: coffee.roastLevel || 'N/A',
-    metodoProcesamieto: coffee.processingMethod || 'N/A',
-    precio: coffee.price || 'N/A',
-    valoracion: coffee.rating,
-    descripcion: coffee.description || '',
-    perfilSabor: coffee.flavorProfile?.calculatedFlavorProfile || 'N/A',
-    notasSabor: coffee.flavorProfile?.flavorNotes?.join(', ') || 'N/A',
-    privado: coffee.isPrivate ? 'Sí' : 'No',
-    fechaCreacion: new Date(coffee.createdAt).toLocaleDateString('es-ES'),
+type Translate = (key: TranslationKey) => string;
+type TranslateValue = (group: 'roast' | 'process' | 'note' | 'profile', value: string | null | undefined) => string;
+
+export interface ExportOptions {
+  lang: Lang;
+  locale: string;
+  t: Translate;
+  tv: TranslateValue;
+}
+
+function rowsFor(coffees: CoffeeWithDetails[], { locale, t, tv }: ExportOptions) {
+  const na = t('common.notAvailable');
+  return coffees.map((coffee) => ({
+    name: coffee.name,
+    roaster: coffee.roaster,
+    origin: coffee.origin || na,
+    roastLevel: tv('roast', coffee.roastLevel) || na,
+    processingMethod: tv('process', coffee.processingMethod) || na,
+    price: coffee.price ?? na,
+    rating: coffee.rating,
+    description: coffee.description || '',
+    flavorProfile: tv('profile', coffee.flavorProfile?.calculatedFlavorProfile) || na,
+    flavorNotes: coffee.flavorProfile?.flavorNotes?.map((n) => tv('note', n)).join(', ') || na,
+    private: coffee.isPrivate ? t('common.yes') : t('common.no'),
+    createdAt: new Date(coffee.createdAt).toLocaleDateString(locale),
   }));
+}
 
-  const dataStr = JSON.stringify(exportData, null, 2);
-  const dataBlob = new Blob([dataStr], { type: 'application/json' });
+// The Spanish export keeps the JSON keys it always had
+const SPANISH_JSON_KEYS: Record<string, string> = {
+  name: 'nombre',
+  roaster: 'tostador',
+  origin: 'origen',
+  roastLevel: 'nivelTueste',
+  processingMethod: 'metodoProcesamieto',
+  price: 'precio',
+  rating: 'valoracion',
+  description: 'descripcion',
+  flavorProfile: 'perfilSabor',
+  flavorNotes: 'notasSabor',
+  private: 'privado',
+  createdAt: 'fechaCreacion',
+};
 
-  const url = URL.createObjectURL(dataBlob);
+function download(content: BlobPart, type: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a');
   link.href = url;
-  link.download = `mis-cafes-${new Date().toISOString().split('T')[0]}.json`;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function filename(options: ExportOptions, extension: string) {
+  return `${options.t('export.filename')}-${new Date().toISOString().split('T')[0]}.${extension}`;
+}
+
+/**
+ * Export user's coffee collection to JSON format
+ */
+export function exportToJSON(coffees: CoffeeWithDetails[], options: ExportOptions): void {
+  const rows = rowsFor(coffees, options).map((row) =>
+    options.lang === 'es'
+      ? Object.fromEntries(Object.entries(row).map(([key, value]) => [SPANISH_JSON_KEYS[key] ?? key, value]))
+      : row
+  );
+  download(JSON.stringify(rows, null, 2), 'application/json', filename(options, 'json'));
 }
 
 /**
  * Export user's coffee collection to CSV format
  */
-export function exportToCSV(coffees: CoffeeWithDetails[]): void {
-  // CSV Headers (in Spanish)
+export function exportToCSV(coffees: CoffeeWithDetails[], options: ExportOptions): void {
+  const { t } = options;
   const headers = [
-    'Nombre',
-    'Tostador',
-    'Origen',
-    'Nivel de Tueste',
-    'Método de Procesamiento',
-    'Precio',
-    'Valoración',
-    'Descripción',
-    'Perfil de Sabor',
-    'Notas de Sabor',
-    'Privado',
-    'Fecha de Creación',
+    t('export.col.name'),
+    t('field.roaster'),
+    t('field.origin'),
+    t('field.roastLevel'),
+    t('field.processingMethod'),
+    t('field.price'),
+    t('field.rating'),
+    t('export.col.description'),
+    t('detail.flavorProfile'),
+    t('export.col.flavorNotes'),
+    t('export.col.private'),
+    t('export.col.createdAt'),
   ];
 
-  // Convert data to CSV rows
-  const rows = coffees.map((coffee) => {
-    return [
-      escapeCSV(coffee.name),
-      escapeCSV(coffee.roaster),
-      escapeCSV(coffee.origin || 'N/A'),
-      escapeCSV(coffee.roastLevel || 'N/A'),
-      escapeCSV(coffee.processingMethod || 'N/A'),
-      coffee.price?.toString() || 'N/A',
-      coffee.rating.toString(),
-      escapeCSV(coffee.description || ''),
-      escapeCSV(coffee.flavorProfile?.calculatedFlavorProfile || 'N/A'),
-      escapeCSV(coffee.flavorProfile?.flavorNotes?.join(', ') || 'N/A'),
-      coffee.isPrivate ? 'Sí' : 'No',
-      new Date(coffee.createdAt).toLocaleDateString('es-ES'),
-    ];
-  });
+  const rows = rowsFor(coffees, options).map((row) =>
+    Object.values(row).map((value) => escapeCSV(String(value)))
+  );
 
-  // Combine headers and rows
-  const csvContent = [
-    headers.join(','),
-    ...rows.map((row) => row.join(',')),
-  ].join('\n');
+  const csvContent = [headers.map(escapeCSV).join(','), ...rows.map((row) => row.join(','))].join('\n');
 
-  // Add BOM for Excel UTF-8 support
-  const BOM = '\uFEFF';
-  const dataBlob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
-
-  const url = URL.createObjectURL(dataBlob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `mis-cafes-${new Date().toISOString().split('T')[0]}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // BOM so Excel opens the file as UTF-8
+  download('﻿' + csvContent, 'text/csv;charset=utf-8;', filename(options, 'csv'));
 }
 
 /**
- * Escape special characters for CSV format
+ * Escape a CSV cell. Cells starting with = + - @ get a leading apostrophe so a
+ * spreadsheet shows them as text instead of running them as a formula (a
+ * coffee name copied from someone else's feed could carry one).
  */
 function escapeCSV(value: string): string {
   if (!value) return '';
 
-  // If value contains comma, quote, or newline, wrap in quotes and escape quotes
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
+  let safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+
+  if (/[",\n\r]/.test(safe)) {
+    safe = `"${safe.replace(/"/g, '""')}"`;
   }
 
-  return value;
+  return safe;
 }

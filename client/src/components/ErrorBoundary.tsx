@@ -1,4 +1,5 @@
-import { Component, ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { translate } from '../i18n';
 
 interface Props {
   children: ReactNode;
@@ -19,7 +20,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: any) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Error caught by boundary:', error, errorInfo);
   }
 
@@ -30,10 +31,10 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
             <div className="text-red-600 text-5xl mb-4 text-center">⚠️</div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">
-              Algo salió mal
+              {translate('error.title')}
             </h1>
             <p className="text-gray-600 mb-4 text-center">
-              Lo sentimos, ha ocurrido un error inesperado.
+              {translate('error.body')}
             </p>
             {this.state.error && (
               <div className="bg-red-50 border border-red-200 rounded p-3 mb-4">
@@ -47,13 +48,13 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={() => window.location.href = '/'}
                 className="flex-1 bg-amber-600 text-white py-2 px-4 rounded-md hover:bg-amber-700"
               >
-                Ir al Inicio
+                {translate('error.home')}
               </button>
               <button
                 onClick={() => window.location.reload()}
                 className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300"
               >
-                Recargar Página
+                {translate('error.reload')}
               </button>
             </div>
           </div>

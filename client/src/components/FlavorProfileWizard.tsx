@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCreateCoffee } from '../hooks/useCoffees';
+import { createFlavorProfile } from '../lib/api';
+import { useI18n, type TranslationKey } from '../i18n';
 import { RatingStars } from './RatingStars';
 import { ImageUpload } from './ImageUpload';
 import { ColorPicker } from './ColorPicker';
-import type { NewCoffee, NewFlavorProfile } from '@shared/schema';
+import { LanguageToggle } from './LanguageToggle';
+import type { NewCoffee } from '@shared/schema';
 
+// Stored in Spanish; displayed through the note.* translations
 const FLAVOR_NOTES = [
   'Chocolate',
   'Nueces',
@@ -17,8 +21,63 @@ const FLAVOR_NOTES = [
   'Ahumado',
 ];
 
+const TOTAL_STEPS = 6;
+
+const inputClass =
+  'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500';
+
+type ScaleName =
+  | 'strength'
+  | 'aroma'
+  | 'sweetness'
+  | 'acidity'
+  | 'bitterness'
+  | 'body'
+  | 'aftertaste'
+  | 'pleasant';
+
+function ScaleQuestion({
+  name,
+  question,
+  value,
+  onChange,
+}: {
+  name: ScaleName;
+  question: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <fieldset>
+      <legend className="block text-lg font-medium text-gray-800 mb-3">{question}</legend>
+      <div className="space-y-2">
+        {[1, 2, 3, 4, 5].map((option) => (
+          <label
+            key={option}
+            className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
+              value === option ? 'border-amber-600 bg-amber-50' : 'border-gray-200 hover:border-amber-300'
+            }`}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option}
+              checked={value === option}
+              onChange={() => onChange(option)}
+              className="mr-3"
+            />
+            <span className="font-medium">{t(`wizard.${name}.${option}` as TranslationKey)}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export function FlavorProfileWizard() {
   const navigate = useNavigate();
+  const { t, tv } = useI18n();
   const createMutation = useCreateCoffee();
   const [currentStep, setCurrentStep] = useState(1);
   const [skipProfile, setSkipProfile] = useState(false);
@@ -59,6 +118,9 @@ export function FlavorProfileWizard() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Set once the coffee exists, so a retry after a failed profile save
+  // doesn't create the coffee a second time
+  const [savedCoffeeId, setSavedCoffeeId] = useState<number | null>(null);
 
   const toggleNote = (note: string) => {
     setSelectedNotes((prev) =>
@@ -68,11 +130,11 @@ export function FlavorProfileWizard() {
 
   const handleNext = () => {
     if (currentStep === 1 && (!name || !roaster)) {
-      setError('Nombre y tostador son requeridos');
+      setError(t('field.nameRoasterRequired'));
       return;
     }
     if (currentStep === 2 && rating === 0) {
-      setError('Por favor selecciona una valoración');
+      setError(t('wizard.ratingRequired'));
       return;
     }
     setError('');
@@ -93,29 +155,39 @@ export function FlavorProfileWizard() {
     setIsSubmitting(true);
     setError('');
 
+    let coffeeId = savedCoffeeId;
     try {
-      const coffeeData: NewCoffee = {
-        name,
-        roaster,
-        origin: origin || undefined,
-        roastLevel: roastLevel || undefined,
-        processingMethod: processingMethod || undefined,
-        beansMix: beansMix || undefined,
-        website: website || undefined,
-        price: price ? parseFloat(price) : undefined,
-        color: color || undefined,
-        image: image || undefined,
-        description: description || undefined,
-        rating,
-        isPrivate,
-      };
+      if (coffeeId === null) {
+        const coffeeData: NewCoffee = {
+          name,
+          roaster,
+          origin: origin || undefined,
+          roastLevel: (roastLevel || undefined) as NewCoffee['roastLevel'],
+          processingMethod: (processingMethod || undefined) as NewCoffee['processingMethod'],
+          beansMix: (beansMix || undefined) as NewCoffee['beansMix'],
+          website: website || undefined,
+          price: price ? parseFloat(price) : undefined,
+          color: color || undefined,
+          image: image || undefined,
+          description: description || undefined,
+          rating,
+          isPrivate,
+        };
 
-      const coffee = await createMutation.mutateAsync(coffeeData);
+        const coffee = await createMutation.mutateAsync(coffeeData);
+        coffeeId = coffee.id;
+        setSavedCoffeeId(coffee.id);
+      }
+    } catch (err) {
+      console.error('Saving coffee failed:', err);
+      setError((err as Error).message || t('wizard.saveFailed'));
+      setIsSubmitting(false);
+      return;
+    }
 
-      // Create flavor profile if not skipped
-      if (!skipProfile && coffee.id) {
-        const profileData: NewFlavorProfile = {
-          coffeeId: coffee.id,
+    if (!skipProfile) {
+      try {
+        await createFlavorProfile(coffeeId, {
           strengthIntensity,
           aromaIntensity,
           sweetnessLevel,
@@ -125,23 +197,16 @@ export function FlavorProfileWizard() {
           aftertasteLength,
           aftertastePleasant,
           flavorNotes: selectedNotes.length > 0 ? selectedNotes : undefined,
-        };
-
-        await fetch(`/api/coffees/${coffee.id}/profile`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(profileData),
         });
+      } catch (err) {
+        console.error('Saving flavor profile failed:', err);
+        setError(t('wizard.profileSaveFailed', { message: (err as Error).message }));
+        setIsSubmitting(false);
+        return;
       }
-
-      // Navigate back to collection
-      navigate('/');
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar el café');
-    } finally {
-      setIsSubmitting(false);
     }
+
+    navigate('/');
   };
 
   const renderProgressBar = () => (
@@ -150,7 +215,7 @@ export function FlavorProfileWizard() {
         {[1, 2, 3, 4, 5, 6].map((step) => (
           <div
             key={step}
-            className={`w-12 h-12 rounded-full flex items-center justify-center font-bold ${
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold ${
               step < currentStep
                 ? 'bg-green-500 text-white'
                 : step === currentStep
@@ -171,21 +236,39 @@ export function FlavorProfileWizard() {
     </div>
   );
 
+  const navButtons = (
+    <div className="flex gap-3">
+      <button
+        onClick={handleBack}
+        className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300"
+      >
+        {t('common.back')}
+      </button>
+      <button
+        onClick={handleNext}
+        className="flex-1 bg-amber-600 text-white py-3 px-4 rounded-md hover:bg-amber-700 font-medium"
+      >
+        {t('common.next')}
+      </button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-3xl mx-auto px-4">
-        <div className="bg-white rounded-lg shadow-lg p-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Agregar Café
-          </h1>
+        <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
+          <div className="flex items-start justify-between gap-4 mb-2">
+            <h1 className="text-3xl font-bold text-gray-900">{t('wizard.title')}</h1>
+            <LanguageToggle />
+          </div>
           <p className="text-gray-600 mb-6">
-            Paso {currentStep} de 6
+            {t('wizard.step', { current: currentStep, total: TOTAL_STEPS })}
           </p>
 
           {renderProgressBar()}
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+            <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               {error}
             </div>
           )}
@@ -193,156 +276,168 @@ export function FlavorProfileWizard() {
           {/* Step 1: Basic Info */}
           {currentStep === 1 && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Información Básica
-              </h2>
+              <h2 className="text-2xl font-bold text-gray-900">{t('wizard.basicInfo')}</h2>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nombre del Café *
+                <label htmlFor="wiz-name" className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('field.name')} *
                 </label>
                 <input
+                  id="wiz-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  placeholder="Ej: Colombian Supremo"
+                  className={inputClass}
+                  placeholder={t('field.namePlaceholder')}
+                  maxLength={200}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tostador *
+                <label htmlFor="wiz-roaster" className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('field.roaster')} *
                 </label>
                 <input
+                  id="wiz-roaster"
                   type="text"
                   value={roaster}
                   onChange={(e) => setRoaster(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  placeholder="Ej: Café de Colombia"
+                  className={inputClass}
+                  placeholder={t('field.roasterPlaceholder')}
+                  maxLength={200}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Origen
+                <label htmlFor="wiz-origin" className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('field.origin')}
                 </label>
                 <input
+                  id="wiz-origin"
                   type="text"
                   value={origin}
                   onChange={(e) => setOrigin(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  placeholder="Ej: Colombia, Huila"
+                  className={inputClass}
+                  placeholder={t('field.originPlaceholder')}
+                  maxLength={200}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nivel de Tueste
+                  <label htmlFor="wiz-roast" className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('field.roastLevel')}
                   </label>
                   <select
+                    id="wiz-roast"
                     value={roastLevel}
                     onChange={(e) => setRoastLevel(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className={inputClass}
                   >
-                    <option value="">Seleccionar</option>
-                    <option value="Claro">Claro</option>
-                    <option value="Medio">Medio</option>
-                    <option value="Oscuro">Oscuro</option>
+                    <option value="">{t('common.select')}</option>
+                    {['Claro', 'Medio', 'Oscuro'].map((level) => (
+                      <option key={level} value={level}>
+                        {tv('roast', level)}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Método de Proceso
+                  <label htmlFor="wiz-process" className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('field.processingMethod')}
                   </label>
                   <select
+                    id="wiz-process"
                     value={processingMethod}
                     onChange={(e) => setProcessingMethod(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className={inputClass}
                   >
-                    <option value="">Seleccionar</option>
-                    <option value="Lavado">Lavado</option>
-                    <option value="Natural">Natural</option>
-                    <option value="Honey">Honey</option>
+                    <option value="">{t('common.select')}</option>
+                    {['Lavado', 'Natural', 'Honey'].map((method) => (
+                      <option key={method} value={method}>
+                        {tv('process', method)}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Mezcla de Granos
+                <label htmlFor="wiz-beans" className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('field.beansMix')}
                 </label>
                 <select
+                  id="wiz-beans"
                   value={beansMix}
                   onChange={(e) => setBeansMix(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className={inputClass}
                 >
-                  <option value="">Seleccionar</option>
-                  <option value="100% Arabica">100% Arabica</option>
-                  <option value="100% Robusta">100% Robusta</option>
-                  <option value="Arabica/Robusta Blend">Mezcla Arabica/Robusta</option>
-                  <option value="Liberica/Excelsa">Liberica/Excelsa</option>
+                  <option value="">{t('common.select')}</option>
+                  {['100% Arabica', '100% Robusta', 'Arabica/Robusta Blend', 'Liberica/Excelsa'].map(
+                    (mix) => (
+                      <option key={mix} value={mix}>
+                        {tv('beans', mix)}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Sitio Web
+                  <label htmlFor="wiz-website" className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('field.website')}
                   </label>
                   <input
+                    id="wiz-website"
                     type="url"
                     value={website}
                     onChange={(e) => setWebsite(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className={inputClass}
                     placeholder="https://example.com"
+                    maxLength={500}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Precio
+                  <label htmlFor="wiz-price" className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('field.price')}
                   </label>
                   <input
+                    id="wiz-price"
                     type="number"
                     step="0.01"
+                    min="0"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className={inputClass}
                     placeholder="15.99"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Imagen del Café
-                </label>
-                <ImageUpload
-                  image={image}
-                  onImageChange={setImage}
-                  onColorPick={setColor}
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">{t('field.image')}</label>
+                <ImageUpload image={image} onImageChange={setImage} onColorPick={setColor} />
               </div>
 
-              {image && (
-                <ColorPicker color={color} onColorChange={setColor} />
-              )}
+              {image && <ColorPicker color={color} onColorChange={setColor} />}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notas (opcional)
+                <label htmlFor="wiz-notes" className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('field.notesOptional')}
                 </label>
                 <textarea
+                  id="wiz-notes"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  placeholder="Tus impresiones sobre este café..."
+                  className={inputClass}
+                  placeholder={t('field.notesPlaceholder')}
+                  maxLength={5000}
                 />
               </div>
 
@@ -350,7 +445,7 @@ export function FlavorProfileWizard() {
                 onClick={handleNext}
                 className="w-full bg-amber-600 text-white py-3 px-4 rounded-md hover:bg-amber-700 font-medium"
               >
-                Siguiente
+                {t('common.next')}
               </button>
             </div>
           )}
@@ -358,42 +453,31 @@ export function FlavorProfileWizard() {
           {/* Step 2: Quick Rating */}
           {currentStep === 2 && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Valoración Rápida
-              </h2>
+              <h2 className="text-2xl font-bold text-gray-900">{t('wizard.quickRating')}</h2>
 
               <div className="text-center">
-                <p className="text-lg text-gray-700 mb-4">
-                  ¿Cuánto te gustó este café en general?
-                </p>
+                <p className="text-lg text-gray-700 mb-4">{t('wizard.howMuch')}</p>
                 <div className="flex justify-center mb-6">
                   <RatingStars rating={rating} onRatingChange={setRating} />
                 </div>
-                <p className="text-3xl font-bold text-amber-600">
-                  {rating} / 10
-                </p>
+                <p className="text-3xl font-bold text-amber-600">{rating} / 10</p>
               </div>
 
               <div className="border-t border-gray-200 pt-6">
-                <p className="text-gray-700 mb-4">
-                  ¿Quieres agregar un perfil de sabor detallado?
-                </p>
-                <p className="text-sm text-gray-500 mb-4">
-                  Te guiaremos con preguntas sencillas para determinar el perfil
-                  de sabor de este café.
-                </p>
-                <div className="flex gap-3">
+                <p className="text-gray-700 mb-4">{t('wizard.addProfileQuestion')}</p>
+                <p className="text-sm text-gray-500 mb-4">{t('wizard.addProfileHint')}</p>
+                <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={handleSkipProfile}
                     className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300 font-medium"
                   >
-                    Omitir Perfil de Sabor
+                    {t('wizard.skipProfile')}
                   </button>
                   <button
                     onClick={handleNext}
                     className="flex-1 bg-amber-600 text-white py-3 px-4 rounded-md hover:bg-amber-700 font-medium"
                   >
-                    Continuar a Preguntas de Sabor
+                    {t('wizard.continueProfile')}
                   </button>
                 </div>
               </div>
@@ -402,7 +486,7 @@ export function FlavorProfileWizard() {
                 onClick={handleBack}
                 className="w-full bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300"
               >
-                Volver
+                {t('common.back')}
               </button>
             </div>
           )}
@@ -410,232 +494,58 @@ export function FlavorProfileWizard() {
           {/* Step 3: Strength & Intensity */}
           {currentStep === 3 && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Fuerza e Intensidad
-              </h2>
-
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  ¿Qué tan fuerte era el café?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Muy débil (como té)' },
-                    { value: 2, label: 'Débil' },
-                    { value: 3, label: 'Moderado (justo)' },
-                    { value: 4, label: 'Fuerte' },
-                    { value: 5, label: 'Muy fuerte (como espresso)' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        strengthIntensity === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="strength"
-                        value={option.value}
-                        checked={strengthIntensity === option.value}
-                        onChange={() => setStrengthIntensity(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  ¿Qué tan poderoso era el aroma?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Apenas perceptible' },
-                    { value: 2, label: 'Sutil' },
-                    { value: 3, label: 'Moderado' },
-                    { value: 4, label: 'Fuerte' },
-                    { value: 5, label: 'Llenó la habitación' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        aromaIntensity === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="aroma"
-                        value={option.value}
-                        checked={aromaIntensity === option.value}
-                        onChange={() => setAromaIntensity(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={handleBack}
-                  className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300"
-                >
-                  Volver
-                </button>
-                <button
-                  onClick={handleNext}
-                  className="flex-1 bg-amber-600 text-white py-3 px-4 rounded-md hover:bg-amber-700 font-medium"
-                >
-                  Siguiente
-                </button>
-              </div>
+              <h2 className="text-2xl font-bold text-gray-900">{t('wizard.strengthTitle')}</h2>
+              <ScaleQuestion
+                name="strength"
+                question={t('wizard.strengthQuestion')}
+                value={strengthIntensity}
+                onChange={setStrengthIntensity}
+              />
+              <ScaleQuestion
+                name="aroma"
+                question={t('wizard.aromaQuestion')}
+                value={aromaIntensity}
+                onChange={setAromaIntensity}
+              />
+              {navButtons}
             </div>
           )}
 
           {/* Step 4: Taste Balance */}
           {currentStep === 4 && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Balance de Sabor
-              </h2>
-
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  🍬 ¿Qué tan dulce sabía?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Nada dulce' },
-                    { value: 2, label: 'Ligeramente dulce' },
-                    { value: 3, label: 'Moderadamente dulce' },
-                    { value: 4, label: 'Dulce' },
-                    { value: 5, label: 'Muy dulce (como postre)' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        sweetnessLevel === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="sweetness"
-                        value={option.value}
-                        checked={sweetnessLevel === option.value}
-                        onChange={() => setSweetnessLevel(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  🍋 ¿Qué tan ácido/brillante era?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Plano/sin brillo' },
-                    { value: 2, label: 'Baja acidez' },
-                    { value: 3, label: 'Balanceado' },
-                    { value: 4, label: 'Brillante (con chispa)' },
-                    { value: 5, label: 'Muy brillante/ácido' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        acidityLevel === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="acidity"
-                        value={option.value}
-                        checked={acidityLevel === option.value}
-                        onChange={() => setAcidityLevel(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  🌿 ¿Qué tan amargo era?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Nada amargo' },
-                    { value: 2, label: 'Ligeramente amargo' },
-                    { value: 3, label: 'Moderadamente amargo (agradable)' },
-                    { value: 4, label: 'Bastante amargo' },
-                    { value: 5, label: 'Muy amargo' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        bitternessLevel === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="bitterness"
-                        value={option.value}
-                        checked={bitternessLevel === option.value}
-                        onChange={() => setBitternessLevel(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={handleBack}
-                  className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300"
-                >
-                  Volver
-                </button>
-                <button
-                  onClick={handleNext}
-                  className="flex-1 bg-amber-600 text-white py-3 px-4 rounded-md hover:bg-amber-700 font-medium"
-                >
-                  Siguiente
-                </button>
-              </div>
+              <h2 className="text-2xl font-bold text-gray-900">{t('wizard.balanceTitle')}</h2>
+              <ScaleQuestion
+                name="sweetness"
+                question={t('wizard.sweetnessQuestion')}
+                value={sweetnessLevel}
+                onChange={setSweetnessLevel}
+              />
+              <ScaleQuestion
+                name="acidity"
+                question={t('wizard.acidityQuestion')}
+                value={acidityLevel}
+                onChange={setAcidityLevel}
+              />
+              <ScaleQuestion
+                name="bitterness"
+                question={t('wizard.bitternessQuestion')}
+                value={bitternessLevel}
+                onChange={setBitternessLevel}
+              />
+              {navButtons}
             </div>
           )}
 
           {/* Step 5: Flavor Notes & Body */}
           {currentStep === 5 && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Notas de Sabor y Cuerpo
-              </h2>
+              <h2 className="text-2xl font-bold text-gray-900">{t('wizard.notesBodyTitle')}</h2>
 
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  ¿Qué sabores notaste? (Selecciona todos los que apliquen)
-                </label>
+              <fieldset>
+                <legend className="block text-lg font-medium text-gray-800 mb-3">
+                  {t('wizard.notesQuestion')}
+                </legend>
                 <div className="grid grid-cols-2 gap-3">
                   {FLAVOR_NOTES.map((note) => (
                     <label
@@ -652,187 +562,79 @@ export function FlavorProfileWizard() {
                         onChange={() => toggleNote(note)}
                         className="mr-3"
                       />
-                      <span className="font-medium">{note}</span>
+                      <span className="font-medium">{tv('note', note)}</span>
                     </label>
                   ))}
                 </div>
-              </div>
+              </fieldset>
 
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  ¿Cómo se sentía en tu boca?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Ligero y acuoso (como té)' },
-                    { value: 2, label: 'Ligero' },
-                    { value: 3, label: 'Medio (como leche)' },
-                    { value: 4, label: 'Con cuerpo' },
-                    { value: 5, label: 'Pesado y almibarado (como crema)' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        bodyWeight === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="body"
-                        value={option.value}
-                        checked={bodyWeight === option.value}
-                        onChange={() => setBodyWeight(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  ¿Cuánto duró el sabor?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Muy corto' },
-                    { value: 2, label: 'Corto' },
-                    { value: 3, label: 'Moderado' },
-                    { value: 4, label: 'Largo' },
-                    { value: 5, label: 'Muy largo' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        aftertasteLength === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="aftertaste"
-                        value={option.value}
-                        checked={aftertasteLength === option.value}
-                        onChange={() => setAftertasteLength(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-lg font-medium text-gray-800 mb-3">
-                  ¿El retrogusto fue agradable?
-                </label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Desagradable' },
-                    { value: 2, label: 'Neutral' },
-                    { value: 3, label: 'Agradable' },
-                    { value: 4, label: 'Muy agradable' },
-                    { value: 5, label: 'Excelente' },
-                  ].map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                        aftertastePleasant === option.value
-                          ? 'border-amber-600 bg-amber-50'
-                          : 'border-gray-200 hover:border-amber-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="pleasant"
-                        value={option.value}
-                        checked={aftertastePleasant === option.value}
-                        onChange={() => setAftertastePleasant(option.value)}
-                        className="mr-3"
-                      />
-                      <span className="font-medium">{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={handleBack}
-                  className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300"
-                >
-                  Volver
-                </button>
-                <button
-                  onClick={handleNext}
-                  className="flex-1 bg-amber-600 text-white py-3 px-4 rounded-md hover:bg-amber-700 font-medium"
-                >
-                  Siguiente
-                </button>
-              </div>
+              <ScaleQuestion
+                name="body"
+                question={t('wizard.bodyQuestion')}
+                value={bodyWeight}
+                onChange={setBodyWeight}
+              />
+              <ScaleQuestion
+                name="aftertaste"
+                question={t('wizard.aftertasteQuestion')}
+                value={aftertasteLength}
+                onChange={setAftertasteLength}
+              />
+              <ScaleQuestion
+                name="pleasant"
+                question={t('wizard.pleasantQuestion')}
+                value={aftertastePleasant}
+                onChange={setAftertastePleasant}
+              />
+              {navButtons}
             </div>
           )}
 
           {/* Step 6: Review & Save */}
           {currentStep === 6 && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Revisar y Guardar
-              </h2>
+              <h2 className="text-2xl font-bold text-gray-900">{t('wizard.reviewTitle')}</h2>
 
               <div className="bg-gray-50 p-6 rounded-lg space-y-4">
                 <div>
                   <h3 className="font-bold text-gray-900">{name}</h3>
-                  <p className="text-gray-600">por {roaster}</p>
+                  <p className="text-gray-600">{t('common.by', { roaster })}</p>
                 </div>
 
                 {origin && (
                   <p className="text-sm text-gray-700">
-                    <span className="font-medium">Origen:</span> {origin}
+                    <span className="font-medium">{t('field.origin')}:</span> {origin}
                   </p>
                 )}
 
                 {roastLevel && (
                   <p className="text-sm text-gray-700">
-                    <span className="font-medium">Tueste:</span> {roastLevel}
+                    <span className="font-medium">{t('field.roastShort')}:</span> {tv('roast', roastLevel)}
                   </p>
                 )}
 
                 <div>
-                  <p className="text-sm text-gray-700 font-medium mb-1">
-                    Valoración:
-                  </p>
+                  <p className="text-sm text-gray-700 font-medium mb-1">{t('wizard.ratingLabel')}</p>
                   <RatingStars rating={rating} readonly />
                 </div>
 
                 {!skipProfile && (
                   <>
                     <div className="border-t border-gray-300 pt-4">
-                      <p className="font-medium text-gray-900 mb-2">
-                        Perfil de Sabor Detectado:
-                      </p>
+                      <p className="font-medium text-gray-900 mb-2">{t('wizard.detectedProfile')}</p>
                       <span className="inline-block bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-medium">
-                        {/* This will be calculated by the server */}
-                        Perfil calculado automáticamente
+                        {/* The server calculates the profile on save */}
+                        {t('wizard.autoProfile')}
                       </span>
                     </div>
 
                     {selectedNotes.length > 0 && (
                       <div>
-                        <p className="font-medium text-gray-900 mb-2">
-                          Notas de Sabor:
-                        </p>
+                        <p className="font-medium text-gray-900 mb-2">{t('wizard.flavorNotes')}</p>
                         <div className="flex flex-wrap gap-2">
                           {selectedNotes.map((note) => (
-                            <span
-                              key={note}
-                              className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-sm"
-                            >
-                              {note}
+                            <span key={note} className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-sm">
+                              {tv('note', note)}
                             </span>
                           ))}
                         </div>
@@ -848,31 +650,32 @@ export function FlavorProfileWizard() {
                     type="checkbox"
                     checked={isPrivate}
                     onChange={(e) => setIsPrivate(e.target.checked)}
+                    disabled={savedCoffeeId !== null}
                     className="mr-2"
                   />
-                  <span className="text-gray-700">
-                    🔒 Mantener esta valoración privada
-                  </span>
+                  <span className="text-gray-700">{t('wizard.keepPrivate')}</span>
                 </label>
-                <p className="text-xs text-gray-500 ml-6 mt-1">
-                  Solo tú podrás ver este café si está privado
-                </p>
+                <p className="text-xs text-gray-500 ml-6 mt-1">{t('wizard.privateHint')}</p>
               </div>
 
               <div className="flex gap-3">
                 <button
                   onClick={handleBack}
                   className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-md hover:bg-gray-300"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || savedCoffeeId !== null}
                 >
-                  Volver
+                  {t('common.back')}
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={isSubmitting}
                   className="flex-1 bg-green-600 text-white py-3 px-4 rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? 'Guardando...' : 'Guardar Café'}
+                  {isSubmitting
+                    ? t('wizard.saving')
+                    : savedCoffeeId !== null
+                    ? t('wizard.saveProfileAgain')
+                    : t('wizard.save')}
                 </button>
               </div>
             </div>

@@ -1,56 +1,102 @@
 import express from "express";
 import session from "express-session";
 import passport from "passport";
-import { Strategy as LocalStrategy } from "passport-local";
 import cors from "cors";
-import bcrypt from "bcrypt";
+import helmet from "helmet";
 import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
-import { initStorage, getStorage } from "./storage";
+import { initStorage } from "./storage";
 import { createAuthRouter } from "./routes/auth";
 import { createCoffeesRouter } from "./routes/coffees";
 import { createFlavorProfilesRouter } from "./routes/flavor-profiles";
 import { createFeedRouter } from "./routes/feed";
 import { createStatsRouter } from "./routes/stats";
-import type { User } from "@shared/schema";
+import { t } from "./i18n";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const { Pool } = pg;
 
-// Initialize Express app
-const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const isProduction = process.env.NODE_ENV === "production";
+const PORT = parseInt(process.env.PORT || "3000", 10);
+const DEV_CLIENT_ORIGIN = "http://localhost:5173";
 
-// Basic health check BEFORE any middleware
-app.get('/ping', (req, res) => {
-  res.send('pong');
-});
+// ============= ENVIRONMENT =============
 
-// Request logging middleware (BEFORE other middleware)
-app.use((req, res, next) => {
-  console.log(`📨 ${req.method} ${req.path}`);
-
-  // Set a timeout for all requests
-  req.setTimeout(30000); // 30 seconds
-  res.setTimeout(30000);
-
-  next();
-});
-
-// Database connection
 const DATABASE_URL = process.env.DATABASE_URL;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const CLIENT_URL = process.env.CLIENT_URL;
+
+console.log("🚀 Starting coffee-rater", {
+  NODE_ENV: process.env.NODE_ENV ?? "development",
+  DATABASE_URL: DATABASE_URL ? "Set" : "Missing",
+  SESSION_SECRET: SESSION_SECRET ? "Set" : "Missing",
+  CLIENT_URL: CLIENT_URL ? "Set" : "Missing",
+});
+
 if (!DATABASE_URL) {
-  console.error("DATABASE_URL environment variable is not set");
+  console.error("❌ DATABASE_URL is not set. Refusing to start.");
   process.exit(1);
 }
 
-console.log("🔌 Initializing database connection...");
+// No fallback secret: a known default would let anyone forge a session cookie
+if (!SESSION_SECRET) {
+  console.error("❌ SESSION_SECRET is not set. Refusing to start.");
+  process.exit(1);
+}
+if (isProduction && SESSION_SECRET.length < 32) {
+  console.error("❌ SESSION_SECRET must be at least 32 characters in production. Refusing to start.");
+  process.exit(1);
+}
 
-// Test database connection before starting
+// ============= APP =============
+
+const app = express();
+
+// Railway terminates TLS in front of us: trust one proxy hop so req.ip,
+// req.protocol and secure cookies reflect the real client
+app.set("trust proxy", 1);
+
+// Basic health check BEFORE any middleware
+app.get("/ping", (_req, res) => {
+  res.send("pong");
+});
+
+// Request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  req.setTimeout(30000);
+  res.setTimeout(30000);
+  // Read the path now: routers trim req.path while they handle the request
+  const requestPath = req.originalUrl.split("?")[0];
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    const line = `📨 ${req.method} ${requestPath} ${res.statusCode} ${duration}ms`;
+    if (duration > 1000) console.warn(`⚠️ Slow operation: ${line}`);
+    else console.log(line);
+  });
+  next();
+});
+
+// Security headers. Images are stored as base64 data URLs, hence data: in img-src.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        "img-src": ["'self'", "data:", "blob:"],
+        "upgrade-insecure-requests": isProduction ? [] : null,
+      },
+    },
+  })
+);
+
+// ============= DATABASE =============
+
+console.log("🔌 Initializing database connection...");
 const testPool = new Pool({ connectionString: DATABASE_URL });
 try {
   const client = await testPool.connect();
@@ -59,12 +105,12 @@ try {
 } catch (err) {
   console.error("❌ Database connection failed:", err);
   process.exit(1);
+} finally {
+  await testPool.end();
 }
 
-// Initialize storage
 const storage = initStorage(DATABASE_URL);
 
-// Session store with error handling
 const PgSession = connectPgSimple(session);
 const sessionStore = new PgSession({
   pool: new Pool({ connectionString: DATABASE_URL }),
@@ -72,125 +118,104 @@ const sessionStore = new PgSession({
   createTableIfMissing: true,
 });
 
-// Listen for session store errors
-sessionStore.on('error', (err: Error) => {
-  console.error('❌ Session store error:', err);
+sessionStore.on("error", (err: Error) => {
+  console.error("❌ Session store error:", err);
 });
 
 console.log("✅ Database initialization complete");
 
-// CORS middleware (needed for all requests)
-const corsOrigin = process.env.NODE_ENV === "production"
-  ? process.env.CLIENT_URL
-  : "http://localhost:5173";
-console.log("🌐 CORS origin:", corsOrigin);
+// ============= CORS AND CSRF =============
+
+// The built client is served from this same server in production, so CORS
+// only matters for the Vite dev server
+const allowedOrigins = new Set(
+  [CLIENT_URL, isProduction ? undefined : DEV_CLIENT_ORIGIN].filter(
+    (origin): origin is string => Boolean(origin)
+  )
+);
+console.log("🌐 Allowed origins:", [...allowedOrigins]);
 
 app.use(
   cors({
-    origin: corsOrigin,
+    origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)),
     credentials: true,
   })
 );
 
-// Body parsers MUST come before static files to parse API request bodies
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+// CSRF: cookies are SameSite=Lax, and on top of that every state-changing API
+// call from a browser has to come from our own origin. Browsers always send
+// Origin on POST/PUT/PATCH/DELETE; non-browser clients have no cookies to abuse.
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
 
-// Serve static files (before session middleware) in production
-if (process.env.NODE_ENV === "production") {
-  const clientDistPath = path.join(__dirname, "../dist/client");
-  console.log("📁 __dirname is:", __dirname);
-  console.log("📁 Static files path:", clientDistPath);
+  const origin = req.get("origin");
+  if (!origin) return next();
 
-  // Check if the directory exists
-  try {
-    const fs = await import('fs');
-    const files = fs.readdirSync(clientDistPath);
-    console.log("📁 Files in dist/client:", files.slice(0, 5)); // Show first 5 files
-  } catch (err: any) {
-    console.error("❌ Cannot read static files directory:", err.message);
+  const ownOrigin = `${req.protocol}://${req.get("host")}`;
+  if (origin === ownOrigin || allowedOrigins.has(origin)) return next();
+
+  console.warn(`🌐 Blocked ${req.method} ${req.originalUrl.split("?")[0]} from origin ${origin}`);
+  res.status(403).json({ success: false, error: t(req, "forbiddenOrigin") });
+});
+
+// JSON only (no urlencoded parser, so a cross-site HTML form can't post a body).
+// 15 MB fits the 10 MB image cap after base64 encoding.
+app.use(express.json({ limit: "15mb" }));
+
+// ============= STATIC CLIENT =============
+
+const clientDistPath = path.join(__dirname, "../dist/client");
+
+if (isProduction) {
+  if (!fs.existsSync(path.join(clientDistPath, "index.html"))) {
+    console.error("❌ No built client at", clientDistPath);
   }
 
-  // Serve static assets
-  app.use(express.static(clientDistPath, {
-    fallthrough: true,
-    redirect: false
-  }));
+  app.use(
+    express.static(clientDistPath, {
+      fallthrough: true,
+      redirect: false,
+      setHeaders: (res, filePath) => {
+        // Vite fingerprints everything in assets/, so those files never change
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    })
+  );
 }
 
-// Session configuration (only needed for API routes)
-console.log("🔐 Configuring session middleware...");
-console.log("🔐 SESSION_SECRET set:", !!process.env.SESSION_SECRET);
-console.log("🔐 NODE_ENV:", process.env.NODE_ENV);
+// ============= SESSION AND AUTH =============
 
 app.use(
   session({
     store: sessionStore,
-    secret: process.env.SESSION_SECRET || "your-secret-key-change-in-production",
-    resave: true, // Changed to true to force session save
+    secret: SESSION_SECRET,
+    resave: true,
     saveUninitialized: false,
-    proxy: true, // Trust Railway's proxy
+    proxy: true,
     cookie: {
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       sameSite: "lax",
     },
   })
 );
 
-// Passport configuration
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Session debugging middleware
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    console.log(`🔑 Session check for ${req.method} ${req.path}:`, {
-      hasSession: !!req.session,
-      sessionID: req.sessionID,
-      isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
-      user: req.user ? `User ${req.user.id}` : 'No user',
-      hasCookieHeader: !!req.headers.cookie,
-      cookieValue: req.headers.cookie ? req.headers.cookie.substring(0, 50) + '...' : 'none'
-    });
-  }
+// Session presence on API calls: user id only, never cookies or session contents
+app.use("/api", (req, _res, next) => {
+  console.log(`🍪 ${req.method} ${req.originalUrl.split("?")[0]} user=${req.user?.id ?? "none"}`);
   next();
 });
 
-// Passport LocalStrategy
-passport.use(
-  new LocalStrategy(async (username, password, done) => {
-    try {
-      // Find user by username or email
-      let user = await storage.getUserByUsername(username);
-      if (!user) {
-        user = await storage.getUserByEmail(username);
-      }
-
-      if (!user) {
-        return done(null, false, { message: "Usuario no encontrado" });
-      }
-
-      // Check password
-      const validPassword = await bcrypt.compare(password, user.passwordHash);
-      if (!validPassword) {
-        return done(null, false, { message: "Contraseña incorrecta" });
-      }
-
-      return done(null, user);
-    } catch (err) {
-      return done(err);
-    }
-  })
-);
-
-// Serialize user for session
 passport.serializeUser((user: Express.User, done) => {
   done(null, user.id);
 });
 
-// Deserialize user from session
 passport.deserializeUser(async (id: number, done) => {
   try {
     const user = await storage.getUserById(id);
@@ -198,75 +223,73 @@ passport.deserializeUser(async (id: number, done) => {
       return done(null, false);
     }
 
-    // Return user without password hash
-    const safeUser = {
+    // Never keep the password hash on req.user
+    done(null, {
       id: user.id,
       username: user.username,
       email: user.email,
       displayName: user.displayName,
-    };
-
-    done(null, safeUser);
+    });
   } catch (err) {
     done(err);
   }
 });
 
-// Routes
+// ============= ROUTES =============
+
 app.use("/api/auth", createAuthRouter(storage));
 app.use("/api/coffees", createCoffeesRouter(storage));
 app.use("/api/coffees", createFlavorProfilesRouter(storage));
 app.use("/api/feed", createFeedRouter(storage));
 app.use("/api/stats", createStatsRouter(storage));
 
-// Health check endpoint
-app.get("/api/health", (req, res) => {
+app.get("/api/health", (_req, res) => {
   res.json({ success: true, message: "Server is running" });
 });
 
-// Handle React Router - serve index.html for all non-API routes (production only)
-if (process.env.NODE_ENV === "production") {
-  app.get("*", (req, res, next) => {
-    const clientDistPath = path.join(__dirname, "../dist/client");
-    const indexPath = path.join(clientDistPath, "index.html");
-    console.log("📄 Serving index.html for:", req.path);
-    res.sendFile(indexPath, (err) => {
-      if (err) {
-        console.error("❌ Error serving index.html:", err);
-        next(err);
-      }
+// Unknown API routes get JSON, not the SPA's index.html
+app.use("/api", (req, res) => {
+  res.status(404).json({ success: false, error: t(req, "apiNotFound") });
+});
+
+// React Router: serve index.html for every other GET (production only)
+if (isProduction) {
+  app.get("*", (_req, res, next) => {
+    res.sendFile(path.join(clientDistPath, "index.html"), (err) => {
+      if (err) next(err);
     });
   });
 }
 
-// Error handling middleware
+// ============= ERRORS =============
+
 app.use(
   (
-    err: Error,
+    err: Error & { status?: number; statusCode?: number; type?: string },
     req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ) => {
-    console.error("❌ Error handler caught:", err);
-
-    // Ensure we haven't already sent a response
     if (res.headersSent) {
-      console.log("⚠️ Headers already sent, passing to next error handler");
       return next(err);
     }
 
-    const message =
-      process.env.NODE_ENV === "production"
-        ? "Error interno del servidor"
-        : err.message;
+    // body-parser errors carry their own status (413 too large, 400 bad JSON)
+    const status = err.status ?? err.statusCode ?? 500;
+    console.error(
+      `❌ [${req.method} ${req.originalUrl.split("?")[0]}] ${status}`,
+      status >= 500 ? err : err.message
+    );
 
-    res.status(500).json({ success: false, error: message });
+    let message: string;
+    if (err.type === "entity.too.large") message = t(req, "payloadTooLarge");
+    else if (status < 500) message = t(req, "invalidData");
+    else message = isProduction ? t(req, "internalError") : err.message;
+
+    res.status(status).json({ success: false, error: message });
   }
 );
 
- // Start server                                                                                          
- app.listen(PORT, '0.0.0.0', () => {                                                                      
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);                               
-}); 
-
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on http://0.0.0.0:${PORT} (${isProduction ? "production" : "development"})`);
+});

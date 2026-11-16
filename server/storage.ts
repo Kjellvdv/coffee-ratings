@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, isNull, desc, like, or, sql } from "drizzle-orm";
+import { eq, and, isNull, asc, desc, ilike, or, gte, lte, type SQL } from "drizzle-orm";
 import pg from "pg";
 import {
   users,
@@ -70,6 +70,14 @@ export interface CoffeeFilters {
   sortOrder?: "asc" | "desc";
 }
 
+// Whitelist: the sort column never comes straight from the query string
+const SORT_COLUMNS = {
+  createdAt: coffees.createdAt,
+  rating: coffees.rating,
+  name: coffees.name,
+  price: coffees.price,
+} as const;
+
 export interface UserStats {
   totalCoffees: number;
   averageRating: number;
@@ -128,7 +136,38 @@ export class DbStorage implements IStorage {
     userId: number,
     filters?: CoffeeFilters
   ): Promise<CoffeeWithDetails[]> {
-    let query = this.db
+    // Every filter goes into ONE where(): drizzle's where() replaces the previous
+    // condition, so chaining it used to drop the owner check and leak other
+    // users' private and deleted coffees.
+    const conditions: SQL[] = [eq(coffees.userId, userId), isNull(coffees.deletedAt)];
+
+    if (filters?.search) {
+      const pattern = `%${filters.search}%`;
+      conditions.push(
+        or(
+          ilike(coffees.name, pattern),
+          ilike(coffees.roaster, pattern),
+          ilike(coffees.description, pattern)
+        )!
+      );
+    }
+
+    if (filters?.roastLevel) {
+      conditions.push(eq(coffees.roastLevel, filters.roastLevel));
+    }
+
+    if (filters?.minRating !== undefined) {
+      conditions.push(gte(coffees.rating, filters.minRating));
+    }
+
+    if (filters?.maxRating !== undefined) {
+      conditions.push(lte(coffees.rating, filters.maxRating));
+    }
+
+    const sortColumn = SORT_COLUMNS[filters?.sortBy ?? "createdAt"] ?? coffees.createdAt;
+    const order = filters?.sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn);
+
+    const results = await this.db
       .select({
         coffee: coffees,
         user: {
@@ -141,42 +180,8 @@ export class DbStorage implements IStorage {
       .from(coffees)
       .leftJoin(users, eq(coffees.userId, users.id))
       .leftJoin(flavorProfiles, eq(coffees.id, flavorProfiles.coffeeId))
-      .where(and(eq(coffees.userId, userId), isNull(coffees.deletedAt)));
-
-    // Apply filters
-    if (filters?.search) {
-      query = query.where(
-        or(
-          like(coffees.name, `%${filters.search}%`),
-          like(coffees.roaster, `%${filters.search}%`),
-          like(coffees.description, `%${filters.search}%`)
-        )
-      );
-    }
-
-    if (filters?.roastLevel) {
-      query = query.where(eq(coffees.roastLevel, filters.roastLevel));
-    }
-
-    if (filters?.minRating !== undefined) {
-      query = query.where(sql`${coffees.rating} >= ${filters.minRating}`);
-    }
-
-    if (filters?.maxRating !== undefined) {
-      query = query.where(sql`${coffees.rating} <= ${filters.maxRating}`);
-    }
-
-    // Apply sorting
-    const sortBy = filters?.sortBy || "createdAt";
-    const sortOrder = filters?.sortOrder || "desc";
-
-    if (sortOrder === "desc") {
-      query = query.orderBy(desc(coffees[sortBy]));
-    } else {
-      query = query.orderBy(coffees[sortBy]);
-    }
-
-    const results = await query;
+      .where(and(...conditions))
+      .orderBy(order);
 
     return results.map((r) => ({
       ...r.coffee,
@@ -279,7 +284,7 @@ export class DbStorage implements IStorage {
   // ============= SOCIAL FEED =============
 
   async getFeedCoffees(
-    currentUserId: number,
+    _currentUserId: number,
     limit: number,
     offset: number
   ): Promise<CoffeeWithDetails[]> {

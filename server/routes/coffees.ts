@@ -1,7 +1,24 @@
-import { Router, Request, Response } from "express";
-import { insertCoffeeSchema, updateCoffeeSchema } from "@shared/schema";
+import { Router, type Request, type Response } from "express";
+import { z, ZodError } from "zod";
+import { insertCoffeeSchema, updateCoffeeSchema, type NewCoffee } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
+import { t, validationMessage } from "../i18n";
+
+const rating = z.coerce.number().int().min(0).max(10);
+
+const listQuerySchema = z.object({
+  search: z.string().trim().max(100).optional(),
+  roastLevel: z.enum(["Claro", "Medio", "Oscuro"]).optional(),
+  minRating: rating.optional(),
+  maxRating: rating.optional(),
+  sortBy: z.enum(["createdAt", "rating", "name", "price"]).optional(),
+  sortOrder: z.enum(["asc", "desc"]).optional(),
+});
+
+function parseId(raw: string): number | null {
+  return /^\d+$/.test(raw) ? Number(raw) : null;
+}
 
 export function createCoffeesRouter(storage: IStorage) {
   const router = Router();
@@ -14,27 +31,21 @@ export function createCoffeesRouter(storage: IStorage) {
    * Get user's coffees with optional filters
    */
   router.get("/", async (req: Request, res: Response) => {
-    try {
-      const userId = req.user!.id;
-      const { search, roastLevel, minRating, maxRating, sortBy, sortOrder } =
-        req.query;
-
-      const coffees = await storage.getCoffees(userId, {
-        search: search as string,
-        roastLevel: roastLevel as string,
-        minRating: minRating ? parseInt(minRating as string) : undefined,
-        maxRating: maxRating ? parseInt(maxRating as string) : undefined,
-        sortBy: sortBy as any,
-        sortOrder: sortOrder as any,
+    const query = listQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({
+        success: false,
+        error: t(req, "invalidData"),
+        details: query.error.issues,
       });
+    }
 
+    try {
+      const coffees = await storage.getCoffees(req.user!.id, query.data);
       res.json({ success: true, data: coffees });
     } catch (error) {
-      console.error("Error getting coffees:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al obtener cafés",
-      });
+      console.error("❌ [coffees.list]", error);
+      res.status(500).json({ success: false, error: t(req, "loadCoffeesFailed") });
     }
   });
 
@@ -43,41 +54,21 @@ export function createCoffeesRouter(storage: IStorage) {
    * Get single coffee (owner only or public)
    */
   router.get("/:id", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const coffeeId = parseId(req.params.id);
+    if (coffeeId === null) {
+      return res.status(400).json({ success: false, error: t(req, "invalidCoffeeId") });
+    }
+
     try {
-      const userId = req.user!.id;
-      const coffeeId = parseInt(req.params.id);
-
-      if (isNaN(coffeeId)) {
-        return res.status(400).json({
-          success: false,
-          error: "ID de café inválido",
-        });
-      }
-
       const coffee = await storage.getCoffee(coffeeId, userId);
-
-      if (!coffee) {
-        return res.status(404).json({
-          success: false,
-          error: "Café no encontrado",
-        });
+      if (!coffee || (coffee.isPrivate && coffee.userId !== userId)) {
+        return res.status(404).json({ success: false, error: t(req, "coffeeNotFound") });
       }
-
-      // Check if user has access (owner or public)
-      if (coffee.userId !== userId && coffee.isPrivate) {
-        return res.status(403).json({
-          success: false,
-          error: "No autorizado",
-        });
-      }
-
       res.json({ success: true, data: coffee });
     } catch (error) {
-      console.error("Error getting coffee:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al obtener café",
-      });
+      console.error(`❌ [coffees.get] coffee ${coffeeId}`, error);
+      res.status(500).json({ success: false, error: t(req, "loadCoffeeFailed") });
     }
   });
 
@@ -86,35 +77,23 @@ export function createCoffeesRouter(storage: IStorage) {
    * Create new coffee
    */
   router.post("/", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
     try {
-      const userId = req.user!.id;
-      console.log("📝 Creating coffee with data:", req.body);
-
-      // Validate request body
       const validatedData = insertCoffeeSchema.parse(req.body);
-
-      // Create coffee
-      const coffee = await storage.createCoffee({
-        ...validatedData,
-        userId,
-      });
-
+      const coffee = await storage.createCoffee({ ...validatedData, userId });
+      console.log(`📝 [coffees.create] coffee ${coffee.id} for user ${userId}`);
       res.status(201).json({ success: true, data: coffee });
-    } catch (error: any) {
-      if (error.name === "ZodError") {
-        console.error("❌ Validation error:", error.errors);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        console.warn("⚠️ [coffees.create] validation failed on", fieldList(error));
         return res.status(400).json({
           success: false,
-          error: "Datos de validación inválidos",
-          details: error.errors,
+          error: validationMessage(req, error),
+          details: error.issues,
         });
       }
-
-      console.error("Error creating coffee:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al crear café",
-      });
+      console.error("❌ [coffees.create]", error);
+      res.status(500).json({ success: false, error: t(req, "createCoffeeFailed") });
     }
   });
 
@@ -123,54 +102,37 @@ export function createCoffeesRouter(storage: IStorage) {
    * Update coffee (owner only)
    */
   router.put("/:id", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const coffeeId = parseId(req.params.id);
+    if (coffeeId === null) {
+      return res.status(400).json({ success: false, error: t(req, "invalidCoffeeId") });
+    }
+
     try {
-      const userId = req.user!.id;
-      const coffeeId = parseInt(req.params.id);
-
-      if (isNaN(coffeeId)) {
-        return res.status(400).json({
-          success: false,
-          error: "ID de café inválido",
-        });
-      }
-
-      // Check ownership
       const existingCoffee = await storage.getCoffee(coffeeId, userId);
       if (!existingCoffee || existingCoffee.userId !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: "No autorizado",
-        });
+        return res.status(403).json({ success: false, error: t(req, "forbidden") });
       }
 
-      // Validate request body
       const validatedData = updateCoffeeSchema.parse(req.body);
-
-      // Update coffee
       const coffee = await storage.updateCoffee(coffeeId, userId, validatedData);
-
       if (!coffee) {
-        return res.status(404).json({
-          success: false,
-          error: "Café no encontrado",
-        });
+        return res.status(404).json({ success: false, error: t(req, "coffeeNotFound") });
       }
 
+      console.log(`📝 [coffees.update] coffee ${coffeeId}`);
       res.json({ success: true, data: coffee });
-    } catch (error: any) {
-      if (error.name === "ZodError") {
+    } catch (error) {
+      if (error instanceof ZodError) {
+        console.warn(`⚠️ [coffees.update] coffee ${coffeeId} validation failed on`, fieldList(error));
         return res.status(400).json({
           success: false,
-          error: "Datos de validación inválidos",
-          details: error.errors,
+          error: validationMessage(req, error),
+          details: error.issues,
         });
       }
-
-      console.error("Error updating coffee:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al actualizar café",
-      });
+      console.error(`❌ [coffees.update] coffee ${coffeeId}`, error);
+      res.status(500).json({ success: false, error: t(req, "updateCoffeeFailed") });
     }
   });
 
@@ -179,22 +141,16 @@ export function createCoffeesRouter(storage: IStorage) {
    * Copy a public coffee's general info into the current user's collection
    */
   router.post("/:id/duplicate", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const coffeeId = parseId(req.params.id);
+    if (coffeeId === null) {
+      return res.status(400).json({ success: false, error: t(req, "invalidCoffeeId") });
+    }
+
     try {
-      const userId = req.user!.id;
-      const coffeeId = parseInt(req.params.id);
-
-      if (isNaN(coffeeId)) {
-        return res.status(400).json({ success: false, error: "ID de café inválido" });
-      }
-
       const source = await storage.getCoffee(coffeeId, userId);
-
-      if (!source) {
-        return res.status(404).json({ success: false, error: "Café no encontrado" });
-      }
-
-      if (source.isPrivate && source.userId !== userId) {
-        return res.status(403).json({ success: false, error: "No autorizado" });
+      if (!source || (source.isPrivate && source.userId !== userId)) {
+        return res.status(404).json({ success: false, error: t(req, "coffeeNotFound") });
       }
 
       const coffee = await storage.createCoffee({
@@ -202,9 +158,9 @@ export function createCoffeesRouter(storage: IStorage) {
         name: source.name,
         roaster: source.roaster,
         origin: source.origin ?? undefined,
-        roastLevel: source.roastLevel as any ?? undefined,
-        processingMethod: source.processingMethod as any ?? undefined,
-        beansMix: source.beansMix as any ?? undefined,
+        roastLevel: (source.roastLevel ?? undefined) as NewCoffee["roastLevel"],
+        processingMethod: (source.processingMethod ?? undefined) as NewCoffee["processingMethod"],
+        beansMix: (source.beansMix ?? undefined) as NewCoffee["beansMix"],
         website: source.website ?? undefined,
         color: source.color ?? undefined,
         image: source.image ?? undefined,
@@ -212,11 +168,11 @@ export function createCoffeesRouter(storage: IStorage) {
         isPrivate: false,
       });
 
-      console.log(`✅ Coffee ${coffeeId} duplicated as ${coffee.id} for user ${userId}`);
+      console.log(`📝 [coffees.duplicate] coffee ${coffeeId} copied as ${coffee.id} for user ${userId}`);
       res.status(201).json({ success: true, data: coffee });
     } catch (error) {
-      console.error("Error duplicating coffee:", error);
-      res.status(500).json({ success: false, error: "Error al duplicar café" });
+      console.error(`❌ [coffees.duplicate] coffee ${coffeeId}`, error);
+      res.status(500).json({ success: false, error: t(req, "duplicateCoffeeFailed") });
     }
   });
 
@@ -225,45 +181,34 @@ export function createCoffeesRouter(storage: IStorage) {
    * Soft delete coffee (owner only)
    */
   router.delete("/:id", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const coffeeId = parseId(req.params.id);
+    if (coffeeId === null) {
+      return res.status(400).json({ success: false, error: t(req, "invalidCoffeeId") });
+    }
+
     try {
-      const userId = req.user!.id;
-      const coffeeId = parseInt(req.params.id);
-
-      if (isNaN(coffeeId)) {
-        return res.status(400).json({
-          success: false,
-          error: "ID de café inválido",
-        });
-      }
-
-      // Check ownership
       const existingCoffee = await storage.getCoffee(coffeeId, userId);
       if (!existingCoffee || existingCoffee.userId !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: "No autorizado",
-        });
+        return res.status(403).json({ success: false, error: t(req, "forbidden") });
       }
 
-      // Delete coffee (soft delete)
       const deleted = await storage.deleteCoffee(coffeeId, userId);
-
       if (!deleted) {
-        return res.status(404).json({
-          success: false,
-          error: "Café no encontrado",
-        });
+        return res.status(404).json({ success: false, error: t(req, "coffeeNotFound") });
       }
 
+      console.log(`📝 [coffees.delete] coffee ${coffeeId} soft-deleted`);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting coffee:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al eliminar café",
-      });
+      console.error(`❌ [coffees.delete] coffee ${coffeeId}`, error);
+      res.status(500).json({ success: false, error: t(req, "deleteCoffeeFailed") });
     }
   });
 
   return router;
+}
+
+function fieldList(error: ZodError): string {
+  return error.issues.map((i) => i.path.join(".")).join(", ");
 }

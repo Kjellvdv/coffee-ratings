@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { RatingStars } from './RatingStars';
 import { ImageUpload } from './ImageUpload';
 import { ColorPicker } from './ColorPicker';
+import { useI18n } from '../i18n';
 import type { CoffeeWithDetails, UpdateCoffee } from '@shared/schema';
 
 interface EditCoffeeModalProps {
@@ -12,6 +13,7 @@ interface EditCoffeeModalProps {
 }
 
 export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeModalProps) {
+  const { t, tv } = useI18n();
   const [name, setName] = useState(coffee.name);
   const [roaster, setRoaster] = useState(coffee.roaster);
   const [origin, setOrigin] = useState(coffee.origin || '');
@@ -50,7 +52,7 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
     e.preventDefault();
 
     if (!name || !roaster) {
-      setError('Nombre y tostador son requeridos');
+      setError(t('field.nameRoasterRequired'));
       return;
     }
 
@@ -62,9 +64,9 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
         name,
         roaster,
         origin: origin || undefined,
-        roastLevel: roastLevel || undefined,
-        processingMethod: processingMethod || undefined,
-        beansMix: beansMix || undefined,
+        roastLevel: (roastLevel || undefined) as UpdateCoffee['roastLevel'],
+        processingMethod: (processingMethod || undefined) as UpdateCoffee['processingMethod'],
+        beansMix: (beansMix || undefined) as UpdateCoffee['beansMix'],
         website: website || undefined,
         price: price ? parseFloat(price) : undefined,
         image: image || undefined,
@@ -76,8 +78,9 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
       await onSave(coffee.id, updateData);
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Error al actualizar el café');
+    } catch (err) {
+      console.error('Updating coffee failed:', err);
+      setError((err as Error).message || t('edit.updateFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -87,12 +90,14 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby="edit-coffee-title" className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b px-6 py-4">
           <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-bold text-gray-900">Editar Café</h2>
+            <h2 id="edit-coffee-title" className="text-2xl font-bold text-gray-900">{t('edit.title')}</h2>
             <button
+              type="button"
               onClick={onClose}
+              aria-label={t('edit.close')}
               className="text-gray-400 hover:text-gray-600 text-2xl"
             >
               ×
@@ -102,14 +107,14 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+            <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
               {error}
             </div>
           )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Nombre del Café *
+              {t('field.name')} *
             </label>
             <input
               type="text"
@@ -122,7 +127,7 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tostador *
+              {t('field.roaster')} *
             </label>
             <input
               type="text"
@@ -135,72 +140,77 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Origen
+              {t('field.origin')}
             </label>
             <input
               type="text"
               value={origin}
               onChange={(e) => setOrigin(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-              placeholder="Ej: Colombia, Huila"
+              placeholder={t('field.originPlaceholder')}
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nivel de Tueste
+                {t('field.roastLevel')}
               </label>
               <select
                 value={roastLevel}
                 onChange={(e) => setRoastLevel(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
               >
-                <option value="">Seleccionar</option>
-                <option value="Claro">Claro</option>
-                <option value="Medio">Medio</option>
-                <option value="Oscuro">Oscuro</option>
+                <option value="">{t('common.select')}</option>
+                {['Claro', 'Medio', 'Oscuro'].map((level) => (
+                  <option key={level} value={level}>
+                    {tv('roast', level)}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Método de Proceso
+                {t('field.processingMethod')}
               </label>
               <select
                 value={processingMethod}
                 onChange={(e) => setProcessingMethod(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
               >
-                <option value="">Seleccionar</option>
-                <option value="Lavado">Lavado</option>
-                <option value="Natural">Natural</option>
-                <option value="Honey">Honey</option>
+                <option value="">{t('common.select')}</option>
+                {['Lavado', 'Natural', 'Honey'].map((method) => (
+                  <option key={method} value={method}>
+                    {tv('process', method)}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mezcla de Granos
+              {t('field.beansMix')}
             </label>
             <select
               value={beansMix}
               onChange={(e) => setBeansMix(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
-              <option value="">Seleccionar</option>
-              <option value="100% Arabica">100% Arabica</option>
-              <option value="100% Robusta">100% Robusta</option>
-              <option value="Arabica/Robusta Blend">Mezcla Arabica/Robusta</option>
-              <option value="Liberica/Excelsa">Liberica/Excelsa</option>
+              <option value="">{t('common.select')}</option>
+              {['100% Arabica', '100% Robusta', 'Arabica/Robusta Blend', 'Liberica/Excelsa'].map((mix) => (
+                <option key={mix} value={mix}>
+                  {tv('beans', mix)}
+                </option>
+              ))}
             </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Sitio Web
+                {t('field.website')}
               </label>
               <input
                 type="url"
@@ -213,7 +223,7 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Precio
+                {t('field.price')}
               </label>
               <input
                 type="number"
@@ -228,7 +238,7 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Imagen del Café
+              {t('field.image')}
             </label>
             <ImageUpload
               image={image}
@@ -243,21 +253,22 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Valoración *
+              {t('field.rating')} *
             </label>
             <RatingStars rating={rating} onRatingChange={setRating} />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Notas
+              {t('field.notes')}
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-              placeholder="Tus notas sobre este café..."
+              placeholder={t('field.editNotesPlaceholder')}
+              maxLength={5000}
             />
           </div>
 
@@ -270,7 +281,7 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
               className="mr-2"
             />
             <label htmlFor="isPrivate" className="text-sm text-gray-700">
-              Mantener privado
+              {t('field.keepPrivate')}
             </label>
           </div>
 
@@ -281,14 +292,14 @@ export function EditCoffeeModal({ coffee, isOpen, onClose, onSave }: EditCoffeeM
               className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
               disabled={isSubmitting}
             >
-              Cancelar
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+              {isSubmitting ? t('edit.saving') : t('edit.save')}
             </button>
           </div>
         </form>

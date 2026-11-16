@@ -1,4 +1,5 @@
 import type { CoffeeWithDetails } from '@shared/schema';
+import { useI18n } from '../i18n';
 
 interface CoffeeCardProps {
   coffee: CoffeeWithDetails;
@@ -7,15 +8,16 @@ interface CoffeeCardProps {
 }
 
 export function CoffeeCard({ coffee, onEdit, onDelete }: CoffeeCardProps) {
+  const { t, tv, locale } = useI18n();
+
   const renderStars = (rating: number) => {
     return (
-      <div className="flex gap-0.5">
+      <div className="flex gap-0.5" aria-label={`${rating}/10`}>
         {[...Array(10)].map((_, i) => (
           <span
             key={i}
-            className={`text-lg ${
-              i < rating ? 'text-yellow-500' : 'text-gray-300'
-            }`}
+            aria-hidden="true"
+            className={`text-lg ${i < rating ? 'text-yellow-500' : 'text-gray-300'}`}
           >
             ★
           </span>
@@ -29,16 +31,12 @@ export function CoffeeCard({ coffee, onEdit, onDelete }: CoffeeCardProps) {
       {/* Image */}
       {coffee.image && (
         <div className="relative h-48 bg-gray-200">
-          <img
-            src={coffee.image}
-            alt={coffee.name}
-            className="w-full h-full object-cover"
-          />
+          <img src={coffee.image} alt={coffee.name} className="w-full h-full object-cover" />
           {coffee.color && (
             <div
               className="absolute top-2 right-2 w-8 h-8 rounded-full border-2 border-white shadow-md"
               style={{ backgroundColor: coffee.color }}
-              title={`Color: ${coffee.color}`}
+              title={t('card.colorTitle', { color: coffee.color })}
             />
           )}
         </div>
@@ -48,34 +46,33 @@ export function CoffeeCard({ coffee, onEdit, onDelete }: CoffeeCardProps) {
       <div className="p-4">
         {/* Header */}
         <div className="mb-2">
-          <h3 className="text-lg font-bold text-gray-900 truncate">
-            {coffee.name}
-          </h3>
-          <p className="text-sm text-gray-600">por {coffee.roaster}</p>
+          <h3 className="text-lg font-bold text-gray-900 truncate">{coffee.name}</h3>
+          <p className="text-sm text-gray-600">{t('common.by', { roaster: coffee.roaster })}</p>
         </div>
 
         {/* Details */}
         <div className="space-y-2 mb-3">
           {coffee.origin && (
             <p className="text-sm text-gray-700">
-              <span className="font-medium">Origen:</span> {coffee.origin}
+              <span className="font-medium">{t('field.origin')}:</span> {coffee.origin}
             </p>
           )}
           {coffee.roastLevel && (
             <p className="text-sm text-gray-700">
-              <span className="font-medium">Tueste:</span> {coffee.roastLevel}
+              <span className="font-medium">{t('field.roastShort')}:</span>{' '}
+              {tv('roast', coffee.roastLevel)}
             </p>
           )}
           {coffee.price && (
             <p className="text-sm text-gray-700">
-              <span className="font-medium">Precio:</span> ${coffee.price}
+              <span className="font-medium">{t('field.price')}:</span> ${coffee.price}
             </p>
           )}
         </div>
 
         {/* Rating */}
         <div className="mb-3">
-          <p className="text-xs text-gray-500 mb-1">Valoración</p>
+          <p className="text-xs text-gray-500 mb-1">{t('field.rating')}</p>
           {renderStars(coffee.rating)}
         </div>
 
@@ -83,40 +80,34 @@ export function CoffeeCard({ coffee, onEdit, onDelete }: CoffeeCardProps) {
         {coffee.flavorProfile?.calculatedFlavorProfile && (
           <div className="mb-3">
             <span className="inline-block bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">
-              {coffee.flavorProfile.calculatedFlavorProfile}
+              {tv('profile', coffee.flavorProfile.calculatedFlavorProfile)}
             </span>
           </div>
         )}
 
         {/* Flavor Notes */}
-        {coffee.flavorProfile?.flavorNotes &&
-          coffee.flavorProfile.flavorNotes.length > 0 && (
-            <div className="mb-3">
-              <div className="flex flex-wrap gap-1">
-                {coffee.flavorProfile.flavorNotes.slice(0, 3).map((note) => (
-                  <span
-                    key={note}
-                    className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded"
-                  >
-                    {note}
-                  </span>
-                ))}
-              </div>
+        {coffee.flavorProfile?.flavorNotes && coffee.flavorProfile.flavorNotes.length > 0 && (
+          <div className="mb-3">
+            <div className="flex flex-wrap gap-1">
+              {coffee.flavorProfile.flavorNotes.slice(0, 3).map((note) => (
+                <span key={note} className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
+                  {tv('note', note)}
+                </span>
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
         {/* Description */}
         {coffee.description && (
-          <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-            {coffee.description}
-          </p>
+          <p className="text-sm text-gray-600 mb-3 line-clamp-2">{coffee.description}</p>
         )}
 
         {/* Privacy Badge */}
         {coffee.isPrivate && (
           <div className="mb-3">
             <span className="inline-block bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded">
-              🔒 Privado
+              {t('common.private')}
             </span>
           </div>
         )}
@@ -129,7 +120,7 @@ export function CoffeeCard({ coffee, onEdit, onDelete }: CoffeeCardProps) {
                 onClick={() => onEdit(coffee)}
                 className="flex-1 bg-amber-600 text-white py-1.5 px-3 rounded hover:bg-amber-700 text-sm"
               >
-                Editar
+                {t('card.edit')}
               </button>
             )}
             {onDelete && (
@@ -137,7 +128,7 @@ export function CoffeeCard({ coffee, onEdit, onDelete }: CoffeeCardProps) {
                 onClick={() => onDelete(coffee.id)}
                 className="flex-1 bg-red-600 text-white py-1.5 px-3 rounded hover:bg-red-700 text-sm"
               >
-                Eliminar
+                {t('card.delete')}
               </button>
             )}
           </div>
@@ -145,7 +136,7 @@ export function CoffeeCard({ coffee, onEdit, onDelete }: CoffeeCardProps) {
 
         {/* Date */}
         <p className="text-xs text-gray-400 mt-2">
-          Agregado: {new Date(coffee.createdAt).toLocaleDateString('es-ES')}
+          {t('card.addedOn', { date: new Date(coffee.createdAt).toLocaleDateString(locale) })}
         </p>
       </div>
     </div>

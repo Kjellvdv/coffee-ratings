@@ -1,100 +1,105 @@
-import { Router, Request, Response } from "express";
+import { Router, type Request, type Response } from "express";
 import bcrypt from "bcrypt";
-import { registerUserSchema, type SafeUser } from "@shared/schema";
+import rateLimit from "express-rate-limit";
+import { ZodError } from "zod";
+import { registerUserSchema, type SafeUser, type User } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
+import { t, validationMessage } from "../i18n";
+
+const BCRYPT_ROUNDS = 10;
+
+function toSafeUser(user: User): SafeUser {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    displayName: user.displayName,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    deletedAt: user.deletedAt,
+  };
+}
+
+// Failed logins per IP. Successful ones don't count, so a user who typos once isn't locked out.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  handler: (req, res) => {
+    console.warn(`⚠️ [auth.login] rate limit hit from ${req.ip}`);
+    res.status(429).json({ success: false, error: t(req, "tooManyAttempts") });
+  },
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  handler: (req, res) => {
+    console.warn(`⚠️ [auth.register] rate limit hit from ${req.ip}`);
+    res.status(429).json({ success: false, error: t(req, "tooManyAttempts") });
+  },
+});
 
 export function createAuthRouter(storage: IStorage) {
   const router = Router();
+
+  // Compared against when the user doesn't exist, so a wrong username takes as
+  // long as a wrong password and response times don't reveal which accounts exist
+  const dummyHash = bcrypt.hashSync("timing-equalizer-not-a-password", BCRYPT_ROUNDS);
+
+  function logIn(req: Request, res: Response, user: User, status: number, route: string) {
+    // passport 0.7 regenerates the session id here, which blocks session fixation
+    req.login(user, (err) => {
+      if (err) {
+        console.error(`❌ [${route}] req.login failed for user ${user.id}:`, err);
+        return res.status(500).json({ success: false, error: t(req, "loginFailed") });
+      }
+      console.log(`✅ [${route}] user ${user.id} signed in`);
+      res.status(status).json({ success: true, data: toSafeUser(user) });
+    });
+  }
 
   /**
    * POST /api/auth/register
    * Register a new user
    */
-  router.post("/register", async (req: Request, res: Response) => {
+  router.post("/register", registerLimiter, async (req: Request, res: Response) => {
     try {
-      console.log("📝 Register request body:", req.body);
-      console.log("📝 Content-Type:", req.headers['content-type']);
+      const { username, email, displayName, password } = registerUserSchema.parse(req.body);
 
-      // Validate request body (includes password validation)
-      const validatedData = registerUserSchema.parse(req.body);
-      const { username, email, displayName, password } = validatedData;
+      if (await storage.getUserByUsername(username)) {
+        return res.status(409).json({ success: false, error: t(req, "usernameTaken") });
+      }
 
-      // Check if username already exists
-      const existingUsername = await storage.getUserByUsername(username);
-      if (existingUsername) {
+      if (await storage.getUserByEmail(email)) {
+        return res.status(409).json({ success: false, error: t(req, "emailTaken") });
+      }
+
+      const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+      const user = await storage.createUser({ username, email, displayName, passwordHash });
+      console.log(`📝 [auth.register] created user ${user.id}`);
+
+      logIn(req, res, user, 201, "auth.register");
+    } catch (error) {
+      if (error instanceof ZodError) {
+        console.warn(
+          "⚠️ [auth.register] validation failed on",
+          error.issues.map((i) => i.path.join(".")).join(", ")
+        );
         return res.status(400).json({
           success: false,
-          error: "El nombre de usuario ya está en uso",
+          error: validationMessage(req, error),
+          details: error.issues,
         });
       }
 
-      // Check if email already exists
-      const existingEmail = await storage.getUserByEmail(email);
-      if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          error: "El correo electrónico ya está en uso",
-        });
-      }
-
-      // Hash password
-      const passwordHash = await bcrypt.hash(password, 10);
-
-      // Create user
-      const user = await storage.createUser({
-        username,
-        email,
-        displayName,
-        passwordHash,
-      });
-
-      // Auto-login after registration
-      req.login(user, (err) => {
-        if (err) {
-          console.error("❌ Error logging in after registration:", err);
-          return res.status(500).json({
-            success: false,
-            error: "Error al iniciar sesión",
-          });
-        }
-
-        // Force session to be recognized as modified
-        req.session.touch();
-
-        console.log("✅ User logged in successfully, session ID:", req.sessionID);
-        console.log("🍪 Session:", req.session);
-
-        // Return user without password hash
-        const safeUser: SafeUser = {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          displayName: user.displayName,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          deletedAt: user.deletedAt,
-        };
-
-        res.status(201).json({
-          success: true,
-          data: safeUser,
-        });
-      });
-    } catch (error: any) {
-      if (error.name === "ZodError") {
-        return res.status(400).json({
-          success: false,
-          error: "Datos de validación inválidos",
-          details: error.errors,
-        });
-      }
-
-      console.error("Error creating user:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error interno del servidor",
-      });
+      console.error("❌ [auth.register]", error);
+      res.status(500).json({ success: false, error: t(req, "internalError") });
     }
   });
 
@@ -102,77 +107,28 @@ export function createAuthRouter(storage: IStorage) {
    * POST /api/auth/login
    * Login with username/email and password
    */
-  router.post("/login", async (req: Request, res: Response) => {
+  router.post("/login", loginLimiter, async (req: Request, res: Response) => {
     try {
-      const { username, password } = req.body;
+      const { username, password } = req.body ?? {};
 
-      if (!username || !password) {
-        return res.status(400).json({
-          success: false,
-          error: "Usuario y contraseña son requeridos",
-        });
+      if (typeof username !== "string" || typeof password !== "string" || !username || !password) {
+        return res.status(400).json({ success: false, error: t(req, "credentialsRequired") });
       }
 
-      // Find user by username or email
-      let user = await storage.getUserByUsername(username);
-      if (!user) {
-        user = await storage.getUserByEmail(username);
+      const user =
+        (await storage.getUserByUsername(username)) ?? (await storage.getUserByEmail(username));
+
+      const validPassword = await bcrypt.compare(password, user?.passwordHash ?? dummyHash);
+
+      if (!user || !validPassword) {
+        console.warn("🔑 [auth.login] failed sign-in attempt");
+        return res.status(401).json({ success: false, error: t(req, "invalidCredentials") });
       }
 
-      if (!user) {
-        return res.status(401).json({
-          success: false,
-          error: "Usuario o contraseña incorrectos",
-        });
-      }
-
-      // Check password
-      const validPassword = await bcrypt.compare(password, user.passwordHash);
-      if (!validPassword) {
-        return res.status(401).json({
-          success: false,
-          error: "Usuario o contraseña incorrectos",
-        });
-      }
-
-      // Login user
-      req.login(user, (err) => {
-        if (err) {
-          console.error("❌ Error logging in:", err);
-          return res.status(500).json({
-            success: false,
-            error: "Error al iniciar sesión",
-          });
-        }
-
-        // Force session to be recognized as modified
-        req.session.touch();
-
-        console.log("✅ User logged in successfully, session ID:", req.sessionID);
-        console.log("🍪 Session:", req.session);
-
-        // Return user without password hash
-        const safeUser: SafeUser = {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          displayName: user.displayName,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          deletedAt: user.deletedAt,
-        };
-
-        res.json({
-          success: true,
-          data: safeUser,
-        });
-      });
+      logIn(req, res, user, 200, "auth.login");
     } catch (error) {
-      console.error("Error logging in:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error interno del servidor",
-      });
+      console.error("❌ [auth.login]", error);
+      res.status(500).json({ success: false, error: t(req, "internalError") });
     }
   });
 
@@ -181,19 +137,14 @@ export function createAuthRouter(storage: IStorage) {
    * Logout current user
    */
   router.post("/logout", (req: Request, res: Response) => {
+    const userId = req.user?.id;
     req.logout((err) => {
       if (err) {
-        console.error("Error logging out:", err);
-        return res.status(500).json({
-          success: false,
-          error: "Error al cerrar sesión",
-        });
+        console.error("❌ [auth.logout]", err);
+        return res.status(500).json({ success: false, error: t(req, "logoutFailed") });
       }
-
-      res.json({
-        success: true,
-        message: "Sesión cerrada exitosamente",
-      });
+      console.log(`🔑 [auth.logout] user ${userId ?? "unknown"} signed out`);
+      res.json({ success: true });
     });
   });
 
@@ -202,26 +153,15 @@ export function createAuthRouter(storage: IStorage) {
    * Get current user
    */
   router.get("/me", requireAuth, (req: Request, res: Response) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        error: "No autenticado",
-      });
-    }
-
-    const safeUser: SafeUser = {
-      id: req.user.id,
-      username: req.user.username,
-      email: req.user.email,
-      displayName: req.user.displayName,
-      createdAt: new Date(), // Will be populated from session
-      updatedAt: new Date(),
-      deletedAt: null,
-    };
-
+    const user = req.user!;
     res.json({
       success: true,
-      data: safeUser,
+      data: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        displayName: user.displayName,
+      },
     });
   });
 

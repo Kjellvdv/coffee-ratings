@@ -1,10 +1,14 @@
+import { useI18n } from '../i18n';
+
 interface SearchBarProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
 }
 
-export function SearchBar({ value, onChange, placeholder = 'Buscar...' }: SearchBarProps) {
+export function SearchBar({ value, onChange, placeholder }: SearchBarProps) {
+  const { t } = useI18n();
+
   return (
     <div className="relative">
       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -13,6 +17,7 @@ export function SearchBar({ value, onChange, placeholder = 'Buscar...' }: Search
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path
             strokeLinecap="round"
@@ -26,12 +31,15 @@ export function SearchBar({ value, onChange, placeholder = 'Buscar...' }: Search
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t('search.placeholder')}
+        aria-label={placeholder ?? t('search.placeholder')}
         className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
       />
       {value && (
         <button
+          type="button"
           onClick={() => onChange('')}
+          aria-label={t('search.clear')}
           className="absolute inset-y-0 right-0 pr-3 flex items-center"
         >
           <svg
@@ -39,13 +47,9 @@ export function SearchBar({ value, onChange, placeholder = 'Buscar...' }: Search
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       )}

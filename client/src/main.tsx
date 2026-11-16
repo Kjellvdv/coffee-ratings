@@ -12,6 +12,7 @@ import { FlavorProfileWizard } from './components/FlavorProfileWizard';
 import { FeedPage } from './pages/FeedPage';
 import { FeedDetailPage } from './pages/FeedDetailPage';
 import { ComparePage } from './pages/ComparePage';
+import { I18nProvider } from './i18n';
 import './index.css';
 
 // Create QueryClient instance
@@ -83,7 +84,9 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <I18nProvider>
+        <App />
+      </I18nProvider>
     </ErrorBoundary>
   </React.StrictMode>
 );

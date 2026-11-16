@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { apiFetch, readError } from '../lib/api';
+import { translate } from '../i18n';
 
 export interface User {
   id: number;
@@ -17,6 +19,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,10 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function checkAuth() {
     try {
-      const response = await fetch('/api/auth/me', {
-        credentials: 'include',
-      });
-
+      const response = await apiFetch('/api/auth/me');
       if (response.ok) {
         const data = await response.json();
         setUser(data.data);
@@ -44,54 +45,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function login(username: string, password: string) {
-    const response = await fetch('/api/auth/login', {
+    const response = await apiFetch('/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      headers: JSON_HEADERS,
       body: JSON.stringify({ username, password }),
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || 'Error al iniciar sesión');
+      const message = await readError(response);
+      console.error('Sign-in failed:', message);
+      throw new Error(message || translate('auth.signInFailed'));
     }
 
+    const data = await response.json();
     setUser(data.data);
   }
 
-  async function register(
-    username: string,
-    email: string,
-    password: string,
-    displayName: string
-  ) {
-    const response = await fetch('/api/auth/register', {
+  async function register(username: string, email: string, password: string, displayName: string) {
+    const response = await apiFetch('/api/auth/register', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      headers: JSON_HEADERS,
       body: JSON.stringify({ username, email, password, displayName }),
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || 'Error al registrarse');
+      const message = await readError(response);
+      console.error('Registration failed:', message);
+      throw new Error(message || translate('auth.registerFailed'));
     }
 
+    const data = await response.json();
     setUser(data.data);
   }
 
   async function logout() {
-    const response = await fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-    });
+    const response = await apiFetch('/api/auth/logout', { method: 'POST' });
 
     if (response.ok) {
       setUser(null);
     } else {
-      throw new Error('Error al cerrar sesión');
+      throw new Error(translate('auth.signOutFailed'));
     }
   }
 

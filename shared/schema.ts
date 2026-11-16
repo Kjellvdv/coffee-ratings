@@ -142,10 +142,19 @@ export const insertUserSchema = createInsertSchema(users, {
   deletedAt: true,
 });
 
-// Registration schema (accepts password instead of passwordHash)
+// Registration schema (accepts password instead of passwordHash).
+// bcrypt only reads the first 72 bytes, so longer passwords are rejected.
 export const registerUserSchema = insertUserSchema.omit({ passwordHash: true }).extend({
-  password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
+  password: z
+    .string()
+    .min(8, "La contraseña debe tener al menos 8 caracteres")
+    .max(72, "La contraseña no puede exceder 72 caracteres"),
 });
+
+// Images are stored inline as base64 data URLs. SVG is excluded because it can carry script.
+// 15 MB of base64 covers the 10 MB upload cap on the client.
+const IMAGE_DATA_URL = /^data:image\/(png|jpe?g|webp|gif|avif|heic|heif|bmp);base64,[A-Za-z0-9+/]+=*$/;
+export const MAX_IMAGE_LENGTH = 15_000_000;
 
 export const selectUserSchema = createSelectSchema(users);
 
@@ -168,8 +177,26 @@ export const insertCoffeeSchema = createInsertSchema(coffees, {
   roastLevel: z.enum(["Claro", "Medio", "Oscuro"]).optional(),
   processingMethod: z.enum(["Lavado", "Natural", "Honey"]).optional(),
   beansMix: z.enum(["100% Arabica", "100% Robusta", "Arabica/Robusta Blend", "Liberica/Excelsa"]).optional(),
-  website: z.string().url("URL inválida").optional().or(z.literal("")),
+  website: z
+    .string()
+    .max(500, "La URL no puede exceder 500 caracteres")
+    .url("URL inválida")
+    .refine((url) => /^https?:\/\//i.test(url), "Solo se permiten URLs http o https")
+    .optional()
+    .or(z.literal("")),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Color hex inválido").optional(),
+  origin: z.string().max(200, "El origen no puede exceder 200 caracteres").optional().nullable(),
+  description: z
+    .string()
+    .max(5000, "Las notas no pueden exceder 5000 caracteres")
+    .optional()
+    .nullable(),
+  image: z
+    .string()
+    .max(MAX_IMAGE_LENGTH, "La imagen es demasiado grande")
+    .regex(IMAGE_DATA_URL, "Formato de imagen inválido")
+    .optional()
+    .nullable(),
 }).omit({
   id: true,
   userId: true, // userId comes from authenticated user, not request body
@@ -223,14 +250,18 @@ export const insertFlavorProfileSchema = createInsertSchema(flavorProfiles, {
     .min(1, "El valor debe estar entre 1 y 5")
     .max(5, "El valor debe estar entre 1 y 5")
     .optional(),
-  flavorNotes: z.array(z.string()).optional(),
+  flavorNotes: z.array(z.string().max(50)).max(20).optional(),
 }).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 });
 
-export const updateFlavorProfileSchema = insertFlavorProfileSchema.partial();
+// coffeeId comes from the URL, never the body: a body value would move the
+// profile onto someone else's coffee
+export const updateFlavorProfileSchema = insertFlavorProfileSchema
+  .omit({ coffeeId: true })
+  .partial();
 export const selectFlavorProfileSchema = createSelectSchema(flavorProfiles);
 
 // ============= TYPESCRIPT TYPES =============

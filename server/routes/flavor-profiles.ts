@@ -1,8 +1,14 @@
-import { Router, Request, Response } from "express";
+import { Router, type Request, type Response } from "express";
+import { ZodError } from "zod";
 import { insertFlavorProfileSchema, updateFlavorProfileSchema } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
 import { calculateFlavorProfile } from "../utils/flavorProfile";
+import { t, validationMessage } from "../i18n";
+
+function parseId(raw: string): number | null {
+  return /^\d+$/.test(raw) ? Number(raw) : null;
+}
 
 export function createFlavorProfilesRouter(storage: IStorage) {
   const router = Router();
@@ -15,50 +21,27 @@ export function createFlavorProfilesRouter(storage: IStorage) {
    * Get flavor profile for a coffee
    */
   router.get("/:coffeeId/profile", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const coffeeId = parseId(req.params.coffeeId);
+    if (coffeeId === null) {
+      return res.status(400).json({ success: false, error: t(req, "invalidCoffeeId") });
+    }
+
     try {
-      const userId = req.user!.id;
-      const coffeeId = parseInt(req.params.coffeeId);
-
-      if (isNaN(coffeeId)) {
-        return res.status(400).json({
-          success: false,
-          error: "ID de café inválido",
-        });
-      }
-
-      // Check if coffee exists and user has access
       const coffee = await storage.getCoffee(coffeeId, userId);
-      if (!coffee) {
-        return res.status(404).json({
-          success: false,
-          error: "Café no encontrado",
-        });
-      }
-
-      // Check ownership for private coffees
-      if (coffee.userId !== userId && coffee.isPrivate) {
-        return res.status(403).json({
-          success: false,
-          error: "No autorizado",
-        });
+      if (!coffee || (coffee.isPrivate && coffee.userId !== userId)) {
+        return res.status(404).json({ success: false, error: t(req, "coffeeNotFound") });
       }
 
       const profile = await storage.getFlavorProfile(coffeeId);
-
       if (!profile) {
-        return res.status(404).json({
-          success: false,
-          error: "Perfil de sabor no encontrado",
-        });
+        return res.status(404).json({ success: false, error: t(req, "profileNotFound") });
       }
 
       res.json({ success: true, data: profile });
     } catch (error) {
-      console.error("Error getting flavor profile:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al obtener perfil de sabor",
-      });
+      console.error(`❌ [profiles.get] coffee ${coffeeId}`, error);
+      res.status(500).json({ success: false, error: t(req, "loadProfileFailed") });
     }
   });
 
@@ -67,65 +50,41 @@ export function createFlavorProfilesRouter(storage: IStorage) {
    * Create flavor profile for a coffee
    */
   router.post("/:coffeeId/profile", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const coffeeId = parseId(req.params.coffeeId);
+    if (coffeeId === null) {
+      return res.status(400).json({ success: false, error: t(req, "invalidCoffeeId") });
+    }
+
     try {
-      const userId = req.user!.id;
-      const coffeeId = parseInt(req.params.coffeeId);
-
-      if (isNaN(coffeeId)) {
-        return res.status(400).json({
-          success: false,
-          error: "ID de café inválido",
-        });
-      }
-
-      // Check if coffee exists and user owns it
       const coffee = await storage.getCoffee(coffeeId, userId);
       if (!coffee || coffee.userId !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: "No autorizado",
-        });
+        return res.status(403).json({ success: false, error: t(req, "forbidden") });
       }
 
-      // Check if profile already exists
-      const existingProfile = await storage.getFlavorProfile(coffeeId);
-      if (existingProfile) {
-        return res.status(400).json({
-          success: false,
-          error: "El perfil de sabor ya existe. Usa PUT para actualizar.",
-        });
+      if (await storage.getFlavorProfile(coffeeId)) {
+        return res.status(409).json({ success: false, error: t(req, "profileExists") });
       }
 
-      // Validate request body
-      const validatedData = insertFlavorProfileSchema.parse({
-        ...req.body,
-        coffeeId,
-      });
-
-      // Calculate flavor profile
-      const calculatedProfile = calculateFlavorProfile(validatedData);
-
-      // Create profile with calculated profile name
+      // coffeeId from the URL wins over anything in the body
+      const validatedData = insertFlavorProfileSchema.parse({ ...req.body, coffeeId });
       const profile = await storage.createFlavorProfile({
         ...validatedData,
-        calculatedFlavorProfile: calculatedProfile,
+        calculatedFlavorProfile: calculateFlavorProfile(validatedData),
       });
 
+      console.log(`📝 [profiles.create] profile ${profile.id} for coffee ${coffeeId}`);
       res.status(201).json({ success: true, data: profile });
-    } catch (error: any) {
-      if (error.name === "ZodError") {
+    } catch (error) {
+      if (error instanceof ZodError) {
         return res.status(400).json({
           success: false,
-          error: "Datos de validación inválidos",
-          details: error.errors,
+          error: validationMessage(req, error),
+          details: error.issues,
         });
       }
-
-      console.error("Error creating flavor profile:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al crear perfil de sabor",
-      });
+      console.error(`❌ [profiles.create] coffee ${coffeeId}`, error);
+      res.status(500).json({ success: false, error: t(req, "createProfileFailed") });
     }
   });
 
@@ -134,60 +93,40 @@ export function createFlavorProfilesRouter(storage: IStorage) {
    * Update flavor profile for a coffee
    */
   router.put("/:coffeeId/profile", async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const coffeeId = parseId(req.params.coffeeId);
+    if (coffeeId === null) {
+      return res.status(400).json({ success: false, error: t(req, "invalidCoffeeId") });
+    }
+
     try {
-      const userId = req.user!.id;
-      const coffeeId = parseInt(req.params.coffeeId);
-
-      if (isNaN(coffeeId)) {
-        return res.status(400).json({
-          success: false,
-          error: "ID de café inválido",
-        });
-      }
-
-      // Check if coffee exists and user owns it
       const coffee = await storage.getCoffee(coffeeId, userId);
       if (!coffee || coffee.userId !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: "No autorizado",
-        });
+        return res.status(403).json({ success: false, error: t(req, "forbidden") });
       }
 
-      // Validate request body
       const validatedData = updateFlavorProfileSchema.parse(req.body);
-
-      // Calculate flavor profile if relevant fields are provided
-      const calculatedProfile = calculateFlavorProfile(validatedData);
-
-      // Update profile with calculated profile name
       const profile = await storage.updateFlavorProfile(coffeeId, {
         ...validatedData,
-        calculatedFlavorProfile: calculatedProfile,
+        calculatedFlavorProfile: calculateFlavorProfile(validatedData),
       });
 
       if (!profile) {
-        return res.status(404).json({
-          success: false,
-          error: "Perfil de sabor no encontrado",
-        });
+        return res.status(404).json({ success: false, error: t(req, "profileNotFound") });
       }
 
+      console.log(`📝 [profiles.update] coffee ${coffeeId}`);
       res.json({ success: true, data: profile });
-    } catch (error: any) {
-      if (error.name === "ZodError") {
+    } catch (error) {
+      if (error instanceof ZodError) {
         return res.status(400).json({
           success: false,
-          error: "Datos de validación inválidos",
-          details: error.errors,
+          error: validationMessage(req, error),
+          details: error.issues,
         });
       }
-
-      console.error("Error updating flavor profile:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al actualizar perfil de sabor",
-      });
+      console.error(`❌ [profiles.update] coffee ${coffeeId}`, error);
+      res.status(500).json({ success: false, error: t(req, "updateProfileFailed") });
     }
   });
 

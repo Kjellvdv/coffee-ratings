@@ -1,17 +1,19 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getFeedCoffee, getCoffee } from '../lib/api';
+import { useI18n, type TranslationKey } from '../i18n';
+import { LanguageToggle } from '../components/LanguageToggle';
 import type { FlavorProfile } from '@shared/schema';
 
-const SCORE_LABELS: Array<[keyof FlavorProfile, string]> = [
-  ['strengthIntensity', 'Fuerza'],
-  ['aromaIntensity', 'Aroma'],
-  ['sweetnessLevel', 'Dulzura'],
-  ['acidityLevel', 'Acidez'],
-  ['bitternessLevel', 'Amargor'],
-  ['bodyWeight', 'Cuerpo'],
-  ['aftertasteLength', 'Persistencia'],
-  ['aftertastePleasant', 'Post-sabor'],
+const SCORE_LABELS: Array<[keyof FlavorProfile, TranslationKey]> = [
+  ['strengthIntensity', 'score.strength'],
+  ['aromaIntensity', 'score.aroma'],
+  ['sweetnessLevel', 'score.sweetness'],
+  ['acidityLevel', 'score.acidity'],
+  ['bitternessLevel', 'score.bitterness'],
+  ['bodyWeight', 'score.body'],
+  ['aftertasteLength', 'score.aftertasteLength'],
+  ['aftertastePleasant', 'score.aftertastePleasant'],
 ];
 
 function ScoreBar({ value, color }: { value: number | null | undefined; color: 'blue' | 'amber' }) {
@@ -41,6 +43,7 @@ function Stars({ rating, color }: { rating: number; color: 'blue' | 'amber' }) {
 export function ComparePage() {
   const { theirsId, mineId } = useParams<{ theirsId: string; mineId: string }>();
   const navigate = useNavigate();
+  const { t, tv } = useI18n();
 
   const theirsIdNum = parseInt(theirsId || '0');
   const mineIdNum = parseInt(mineId || '0');
@@ -62,7 +65,7 @@ export function ComparePage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600 mx-auto" />
-          <p className="mt-4 text-gray-600">Cargando comparación...</p>
+          <p className="mt-4 text-gray-600">{t('compare.loading')}</p>
         </div>
       </div>
     );
@@ -72,12 +75,15 @@ export function ComparePage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600 mb-4">Error al cargar los cafés para comparar</p>
+          <p role="alert" className="text-red-600 mb-4">
+            {t('compare.loadError')}
+            {errorTheirs || errorMine ? `: ${((errorTheirs || errorMine) as Error).message}` : ''}
+          </p>
           <button
             onClick={() => navigate('/feed')}
             className="bg-amber-600 text-white px-6 py-2 rounded-md hover:bg-amber-700"
           >
-            Volver al Feed
+            {t('nav.backToFeedButton')}
           </button>
         </div>
       </div>
@@ -92,13 +98,14 @@ export function ComparePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-4 sm:px-6">
+        <div className="max-w-4xl mx-auto px-4 py-4 sm:px-6 flex items-center justify-between gap-4">
           <button
             onClick={() => navigate(`/feed/${theirs.id}`)}
             className="text-amber-600 hover:text-amber-700"
           >
-            ← Volver al Café
+            {t('nav.backToCoffee')}
           </button>
+          <LanguageToggle />
         </div>
       </header>
 
@@ -106,11 +113,11 @@ export function ComparePage() {
         {/* Coffee info */}
         <div className="bg-white rounded-lg shadow-md p-5 mb-6">
           <h1 className="text-2xl font-bold text-gray-900">{theirs.name}</h1>
-          <p className="text-gray-600">por {theirs.roaster}</p>
+          <p className="text-gray-600">{t('common.by', { roaster: theirs.roaster })}</p>
           <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-500">
-            {theirs.origin && <span>Origen: {theirs.origin}</span>}
-            {theirs.roastLevel && <span>Tueste: {theirs.roastLevel}</span>}
-            {theirs.processingMethod && <span>Proceso: {theirs.processingMethod}</span>}
+            {theirs.origin && <span>{t('field.origin')}: {theirs.origin}</span>}
+            {theirs.roastLevel && <span>{t('field.roastShort')}: {tv('roast', theirs.roastLevel)}</span>}
+            {theirs.processingMethod && <span>{t('field.processShort')}: {tv('process', theirs.processingMethod)}</span>}
           </div>
         </div>
 
@@ -124,7 +131,7 @@ export function ComparePage() {
             </div>
             <div className="bg-gray-50 p-4 border-b border-gray-200" />
             <div className="bg-amber-50 p-4 text-center border-b border-gray-200">
-              <p className="font-bold text-gray-900">Tú</p>
+              <p className="font-bold text-gray-900">{t('compare.you')}</p>
               <p className="text-sm text-gray-500">{mine.user.displayName}</p>
             </div>
           </div>
@@ -139,7 +146,7 @@ export function ComparePage() {
               <Stars rating={theirs.rating} color="blue" />
             </div>
             <div className="bg-gray-50 p-3 flex items-center justify-center border-x border-gray-100">
-              <span className="text-xs text-gray-500 text-center leading-tight">Valoración general</span>
+              <span className="text-xs text-gray-500 text-center leading-tight">{t('field.overallRating')}</span>
             </div>
             <div className="p-4 text-center">
               <p className="text-3xl font-bold text-gray-900">
@@ -155,7 +162,7 @@ export function ComparePage() {
             <>
               <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Perfil de Sabor
+                  {t('detail.flavorProfile')}
                 </p>
               </div>
 
@@ -172,7 +179,7 @@ export function ComparePage() {
                       <ScoreBar value={theirVal} color="blue" />
                     </div>
                     <div className="bg-gray-50 px-2 py-3 flex items-center justify-center border-x border-gray-100">
-                      <span className="text-xs text-gray-500 text-center">{label}</span>
+                      <span className="text-xs text-gray-500 text-center">{t(label)}</span>
                     </div>
                     <div className="p-3 pr-4">
                       <ScoreBar value={myVal} color="amber" />
@@ -188,19 +195,19 @@ export function ComparePage() {
                   <div className="p-4 flex justify-center">
                     {theirs.flavorProfile?.calculatedFlavorProfile ? (
                       <span className="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full text-center">
-                        {theirs.flavorProfile.calculatedFlavorProfile}
+                        {tv('profile', theirs.flavorProfile.calculatedFlavorProfile)}
                       </span>
                     ) : (
                       <span />
                     )}
                   </div>
                   <div className="bg-gray-50 px-2 py-4 flex items-center justify-center border-x border-gray-100">
-                    <span className="text-xs text-gray-500 text-center">Perfil</span>
+                    <span className="text-xs text-gray-500 text-center">{t('compare.profile')}</span>
                   </div>
                   <div className="p-4 flex justify-center">
                     {mine.flavorProfile?.calculatedFlavorProfile ? (
                       <span className="bg-amber-100 text-amber-800 text-sm font-medium px-3 py-1 rounded-full text-center">
-                        {mine.flavorProfile.calculatedFlavorProfile}
+                        {tv('profile', mine.flavorProfile.calculatedFlavorProfile)}
                       </span>
                     ) : (
                       <span />
@@ -216,10 +223,10 @@ export function ComparePage() {
             <>
               <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Notas de Sabor
+                  {t('export.col.flavorNotes')}
                   {sharedNotes.size > 0 && (
                     <span className="ml-2 text-amber-600 normal-case font-normal">
-                      · {sharedNotes.size} en común
+                      {t('compare.sharedNotes', { count: sharedNotes.size })}
                     </span>
                   )}
                 </p>
@@ -239,13 +246,13 @@ export function ComparePage() {
                             : 'bg-gray-100 text-gray-700'
                         }`}
                       >
-                        {note}
+                        {tv('note', note)}
                       </span>
                     ))}
                   </div>
                 </div>
                 <div className="bg-gray-50 px-2 py-4 flex items-center justify-center border-x border-gray-100">
-                  <span className="text-xs text-gray-500 text-center">Notas</span>
+                  <span className="text-xs text-gray-500 text-center">{t('compare.notes')}</span>
                 </div>
                 <div className="p-4">
                   <div className="flex flex-wrap gap-1">
@@ -261,7 +268,7 @@ export function ComparePage() {
                             : 'bg-gray-100 text-gray-700'
                         }`}
                       >
-                        {note}
+                        {tv('note', note)}
                       </span>
                     ))}
                   </div>
@@ -273,7 +280,7 @@ export function ComparePage() {
           {/* No flavor profiles at all */}
           {!hasFlavorProfiles && theirsNotes.size === 0 && mineNotes.size === 0 && (
             <div className="p-8 text-center text-gray-500">
-              Ninguno de los dos tiene un perfil de sabor registrado para este café.
+              {t('compare.noProfiles')}
             </div>
           )}
         </div>
