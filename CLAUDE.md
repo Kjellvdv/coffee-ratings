@@ -34,7 +34,7 @@ docker run -d --name coffee-rater-postgres -p 5432:5432 -e POSTGRES_USER=<user> 
 The `vcrater-postgres` container that's already running belongs to `~/Projects/vcrater` and listens on 5433. Leave it alone.
 
 ## Deployment (Railway)
-Live at **coffee.kjellv.com** since 2026-11-16. Railway project `friendly-caring`, service `coffee-ratings`, plus a Postgres service with no public TCP proxy. Every push to `main` of `Kjellvdv/coffee-ratings` deploys. The Railway CLI is linked from this folder (`railway status` shows `friendly-caring / production / coffee-ratings`).
+**Paused since 2026-11-21.** It ran at **coffee.kjellv.com** from 2026-11-16 until Kjell had it taken offline: the deployment is removed and the GitHub trigger deleted, so a push to `main` of `Kjellvdv/coffee-ratings` no longer deploys. The `Postgres` service still runs with all the data. To bring it back, follow `~/.claude/memory/reference/railway.md` → Paused services. Railway project `friendly-caring`, service `coffee-ratings`, plus a Postgres service with no public TCP proxy. The Railway CLI is linked from this folder (`railway status` shows `friendly-caring / production / coffee-ratings`).
 
 - There's no `railway.json`, so Railpack builds with `npm run build` and starts with `npm start`. Railway ignores config files anyway (see `~/.claude/memory/reference/railway.md`), so change build or start settings through the API, not a file.
 - One service runs everything. Express serves `dist/client` with immutable caching on `assets/`, sends `index.html` for every other non-API GET (the React Router fallback) and handles `/api`.
